@@ -1,0 +1,524 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">Takatuf</string>
+
+    <!-- Navigation -->
+    <string name="tab_discover">Discover</string>
+    <string name="tab_activity">Activity</string>
+    <string name="tab_passport">Passport</string>
+
+    <!-- Common actions -->
+    <string name="action_add">Add</string>
+    <string name="action_add_availability">Add hours</string>
+    <string name="action_add_link">Add a link</string>
+    <string name="action_add_role">Add role</string>
+    <string name="action_add_skills">Add skills</string>
+    <string name="action_apply">Apply</string>
+    <string name="action_apply_again">Apply again</string>
+    <string name="action_apply_for_role">Apply for this role</string>
+    <string name="action_back">Back</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_change">Change</string>
+    <string name="action_change_password">Change password</string>
+    <string name="action_clear">Clear</string>
+    <string name="action_clear_date">Clear %1$s</string>
+    <string name="action_clear_filters">Clear filters</string>
+    <string name="action_clear_search">Clear search</string>
+    <string name="action_close">Close</string>
+    <string name="action_close_recruitment">Close recruitment</string>
+    <string name="action_continue">Continue</string>
+    <string name="action_decrease">Decrease %1$s</string>
+    <string name="action_discard">Discard</string>
+    <string name="action_done">Done</string>
+    <string name="action_edit">Edit</string>
+    <string name="action_edit_event">Edit event</string>
+    <string name="action_edit_listing">Edit listing</string>
+    <string name="action_find_teammates">Find teammates</string>
+    <string name="action_go_back">Go back</string>
+    <string name="action_hide_password">Hide password</string>
+    <string name="action_increase">Increase %1$s</string>
+    <string name="action_keep_application">Keep it</string>
+    <string name="action_keep_editing">Keep editing</string>
+    <string name="action_more">More options</string>
+    <string name="action_official_page">Official page</string>
+    <string name="action_open_link">Open %1$s</string>
+    <string name="action_post">Post</string>
+    <string name="action_post_something">Post an opportunity</string>
+    <string name="action_publish">Publish</string>
+    <string name="action_remove_from_shortlist">Remove from shortlist</string>
+    <string name="action_remove_from_shortlist_named">Remove %1$s from shortlist</string>
+    <string name="action_remove_named">Remove %1$s</string>
+    <string name="action_remove_role">Remove role</string>
+    <string name="action_reopen_recruitment">Reopen recruitment</string>
+    <string name="action_review_applicants">Review applicants</string>
+    <string name="action_save">Save</string>
+    <string name="action_save_changes">Save changes</string>
+    <string name="action_save_role">Save role</string>
+    <string name="action_send_application">Send application</string>
+    <string name="action_shortlist">Shortlist</string>
+    <string name="action_shortlist_named">Shortlist %1$s</string>
+    <string name="action_show_password">Show password</string>
+    <string name="action_sign_out">Sign out</string>
+    <string name="action_try_again">Try again</string>
+    <string name="action_unsave">Remove from saved</string>
+    <string name="action_view_event">View event</string>
+    <string name="action_withdraw">Withdraw</string>
+
+    <!-- Errors: say what happened and what to do next -->
+    <string name="error_title">Couldn’t load this</string>
+    <string name="error_offline">No connection. Check your internet and try again.</string>
+    <string name="error_permission_denied">You don’t have access to this.</string>
+    <string name="error_not_found">This no longer exists. It may have been removed.</string>
+    <string name="error_already_applied">You already have an active application here.</string>
+    <string name="error_not_accepting">This listing stopped accepting applications.</string>
+    <string name="error_email_in_use">An account with this email already exists.</string>
+    <string name="error_wrong_credentials">Email or password is incorrect.</string>
+    <string name="error_weak_password">Choose a stronger password: at least 8 characters with a letter and a number.</string>
+    <string name="error_invalid_email">That email address isn’t valid. Check it and try again.</string>
+    <string name="error_too_many_requests">Too many attempts. Wait a few minutes, then try again.</string>
+    <string name="error_user_disabled">This account has been disabled. Contact the Takatuf team for help.</string>
+    <string name="error_unknown">That didn’t work. Try again in a moment.</string>
+
+    <!-- Sign in -->
+    <string name="auth_signin_title">Find your teammates</string>
+    <string name="auth_signin_body">Join student projects, competitions and hackathons, or recruit people for your own.</string>
+    <string name="auth_signup_title">Create your account</string>
+    <string name="auth_signup_body">Use your university email. You’ll set up your Skill Passport next.</string>
+    <string name="auth_reset_title">Reset your password</string>
+    <string name="auth_reset_body">Enter the email you signed up with. A link to choose a new password will be sent there.</string>
+    <string name="auth_reset_sent">If %1$s has an account, a reset link is on its way. Check your inbox and spam folder.</string>
+    <string name="auth_signin_action">Sign in</string>
+    <string name="auth_signup_action">Create account</string>
+    <string name="auth_reset_action">Send reset link</string>
+    <string name="auth_signin_instead">Sign in instead</string>
+    <string name="auth_back_to_signin">Back to sign in</string>
+    <string name="auth_forgot_password">Forgot password?</string>
+    <string name="auth_new_here">New to Takatuf?</string>
+    <string name="auth_have_account">Already have an account?</string>
+    <string name="auth_password_hint">At least 8 characters, with a letter and a number.</string>
+    <string name="auth_error_name">Enter your name.</string>
+    <string name="auth_error_email">Enter your email.</string>
+    <string name="auth_error_password_empty">Enter your password.</string>
+    <string name="auth_error_password_weak">Use at least 8 characters, including a letter and a number.</string>
+
+    <!-- Fields -->
+    <string name="field_full_name">Full name</string>
+    <string name="field_university_email">University email</string>
+    <string name="field_email_placeholder" translatable="false">name@psu.edu.sa</string>
+    <string name="field_password">Password</string>
+    <string name="field_major">Major</string>
+    <string name="field_year">Year</string>
+    <string name="field_headline">Headline (optional)</string>
+    <string name="field_headline_placeholder">Designer who codes. Into health tech.</string>
+    <string name="field_hours_per_week">Hours a week</string>
+    <string name="field_days">Days you usually work</string>
+    <string name="field_availability_note">Anything teams should know? (optional)</string>
+    <string name="field_availability_note_placeholder">Busy during midterms in week 9</string>
+    <string name="char_count">%1$d/%2$d</string>
+    <string name="year_n">Year %1$d</string>
+    <string name="year_graduate">Graduate</string>
+    <string name="date_choose">Choose a date</string>
+    <string name="date_field_a11y">%1$s: %2$s</string>
+
+    <!-- Onboarding -->
+    <string name="onboarding_step">Step %1$d of %2$d</string>
+    <string name="onboarding_basics_title">Tell teams who you are</string>
+    <string name="onboarding_basics_body">Your name, major and headline are always visible to other students.</string>
+    <string name="onboarding_skills_title">What can you bring to a team?</string>
+    <string name="onboarding_skills_body">Add the skills you’d use on a team and how strong each one is. Listings that need them will stand out.</string>
+    <string name="onboarding_time_title">Your time and your privacy</string>
+    <string name="onboarding_time_body">Owners plan around your hours. You decide who can open your full passport.</string>
+    <string name="onboarding_skip">Skip for now</string>
+    <string name="onboarding_finish">Finish setup</string>
+
+    <!-- Skills, interests, levels, days -->
+    <string name="skills_add_label">Add a skill</string>
+    <string name="skills_add_placeholder">Kotlin, Figma, public speaking</string>
+    <string name="skills_add_typed">Add “%1$s”</string>
+    <string name="interests_add_label">Add another interest</string>
+    <string name="skill_covered_a11y">%1$s, a match</string>
+    <string name="skill_matches_role">Matches the role</string>
+    <string name="more_count">+%1$d</string>
+    <string name="level_beginner">Beginner</string>
+    <string name="level_intermediate">Intermediate</string>
+    <string name="level_advanced">Advanced</string>
+    <string name="day_sun">Sun</string>
+    <string name="day_mon">Mon</string>
+    <string name="day_tue">Tue</string>
+    <string name="day_wed">Wed</string>
+    <string name="day_thu">Thu</string>
+    <string name="day_fri">Fri</string>
+    <string name="day_sat">Sat</string>
+    <string name="days_every_day">Every day</string>
+    <string name="days_range">%1$s–%2$s</string>
+    <string name="hours_value">%1$d h</string>
+    <string name="hours_per_week_short">%1$d h a week</string>
+
+    <!-- Visibility -->
+    <string name="visibility_question">Who can see your passport?</string>
+    <string name="visibility_current">%1$s</string>
+    <string name="visibility_everyone">Everyone at Takatuf</string>
+    <string name="visibility_everyone_body">Any signed-in student can open your passport.</string>
+    <string name="visibility_applied">Teams you apply to</string>
+    <string name="visibility_applied_body">Only owners of listings you apply to can open it.</string>
+    <string name="visibility_private">Only you</string>
+    <string name="visibility_private_body">Owners see your name and application, not your passport.</string>
+
+    <!-- Listing kinds and states -->
+    <string name="kind_project">Project</string>
+    <string name="kind_team">Event team</string>
+    <string name="event_type_competition">Competition</string>
+    <string name="event_type_hackathon">Hackathon</string>
+    <string name="format_in_person">In person</string>
+    <string name="format_online">Online</string>
+    <string name="format_hybrid">Hybrid</string>
+    <string name="format_with_location">%1$s, %2$s</string>
+    <string name="tag_yours">Yours</string>
+    <string name="tag_applied">Applied</string>
+    <string name="status_under_review">Under review</string>
+    <string name="status_shortlisted">Shortlisted</string>
+    <string name="status_withdrawn">Withdrawn</string>
+    <string name="closed_by_owner_short">Closed</string>
+    <string name="closed_deadline_short">Applications closed</string>
+    <string name="closed_event_over_short">Event over</string>
+    <string name="closed_ended_short">Event ended</string>
+    <string name="closed_registration_short">Registration closed</string>
+    <string name="closed_by_owner_long">The owner stopped taking applications for now.</string>
+    <string name="closed_deadline_long">Applications closed on %1$s.</string>
+    <string name="closed_event_over_long">The event this team formed for is over.</string>
+    <string name="closed_ended_long">This event ended on %1$s. Its details stay here for reference.</string>
+    <string name="closed_registration_long">The organizer’s registration deadline has passed. Check the official page for late entries.</string>
+    <string name="closes_on">Closes %1$s</string>
+    <string name="closes_today">Closes today</string>
+    <string name="by_organizer">By %1$s</string>
+    <string name="organized_by">Organized by %1$s</string>
+    <string name="posted_by">Posted by %1$s</string>
+    <string name="posted_when">Posted %1$s</string>
+    <string name="shared_by">Shared by %1$s %2$s</string>
+    <string name="needs_roles">Needs %1$s</string>
+    <string name="for_event">For %1$s</string>
+    <string name="team_size_range">Teams of %1$d–%2$d</string>
+    <string name="registration_closes_on">Registration closes %1$s</string>
+    <string name="time_just_now">just now</string>
+
+    <!-- Discover -->
+    <string name="discover_search_placeholder">Search roles, skills or events</string>
+    <string name="discover_saved">Saved</string>
+    <string name="discover_filters">Filters</string>
+    <string name="discover_filters_count">Filters %1$d</string>
+    <string name="discover_show_all">Show everything</string>
+    <string name="discover_empty_feed_title">Nothing posted yet</string>
+    <string name="discover_empty_feed_body">Post a project or share a competition so other students can find it.</string>
+    <string name="discover_empty_saved_title">Nothing saved yet</string>
+    <string name="discover_empty_saved_body">Tap the bookmark on any listing to keep it here.</string>
+    <string name="discover_no_match_title">No matches</string>
+    <string name="discover_no_match_query">No matches for “%1$s”</string>
+    <string name="discover_no_match_body">Try other words, or clear the filters to see everything.</string>
+    <string name="filter_all">All</string>
+    <string name="filter_projects">Projects</string>
+    <string name="filter_teams">Event teams</string>
+    <string name="filter_events">Events</string>
+    <string name="filter_skills_title">Skills</string>
+    <string name="filter_skills_body">Show listings that need any of these.</string>
+    <string name="filter_skills_none">Skills appear here once listings ask for them.</string>
+    <string name="filter_time_title">Time a week</string>
+    <string name="filter_time_any">Any</string>
+    <string name="filter_time_up_to">Up to %1$d h</string>
+    <string name="filter_include_closed">Show closed and ended</string>
+    <string name="filter_include_closed_body">Include listings that no longer take applications.</string>
+    <string name="sort_label">%1$s</string>
+    <string name="sort_best_match">Best match</string>
+    <string name="sort_newest">Newest</string>
+    <string name="sort_closing_soon">Closing soon</string>
+    <string name="post_title">What do you want to post?</string>
+    <string name="post_project_title">Recruit for a project</string>
+    <string name="post_project_body">Describe your idea and the roles you need.</string>
+    <string name="post_team_title">Find teammates for an event</string>
+    <string name="post_team_body">Link to a competition or hackathon and list your open places.</string>
+    <string name="post_event_title">Share an event</string>
+    <string name="post_event_body">Post a competition or hackathon so others can find it and form teams.</string>
+
+    <!-- Listing detail -->
+    <string name="listing_missing_title">This listing isn’t available</string>
+    <string name="listing_missing_body">It may have been removed by the person who posted it.</string>
+    <string name="hero_your_seat">One seat marks your application.</string>
+    <string name="section_outcome">What the project will produce</string>
+    <string name="section_team_goal">What the team will build</string>
+    <string name="section_roles">Open roles</string>
+    <string name="section_about">About</string>
+    <string name="section_eligibility">Who can take part</string>
+    <string name="section_rules">Team rules</string>
+    <string name="section_official_source">Official source</string>
+    <string name="role_filled">Filled</string>
+    <string name="role_you_applied">You applied for this role</string>
+    <string name="teams_recruiting_none">No teams are recruiting for this event yet. Start one and list the places you need.</string>
+    <string name="applied_for_role_when">%1$s, sent %2$s</string>
+    <string name="withdraw_title">Withdraw your application?</string>
+    <string name="withdraw_body">The owner will see it as withdrawn. You can apply again while the listing is open.</string>
+    <string name="close_recruitment_title">Close recruitment?</string>
+    <string name="close_recruitment_body">New applications will stop. Current applicants stay on your list, and you can reopen at any time.</string>
+
+    <!-- Apply -->
+    <string name="apply_title">Apply to %1$s</string>
+    <string name="apply_role">Role</string>
+    <string name="apply_role_asks_for">This role asks for %1$s.</string>
+    <string name="apply_contribution_label">What would you bring?</string>
+    <string name="apply_contribution_placeholder">Relevant work, what you’d take on, what you want to learn</string>
+    <string name="apply_contribution_hint">Mention work you’ve done that fits this role.</string>
+    <string name="apply_hours">Hours a week you can give</string>
+    <string name="apply_hours_below">The team is asking for about %1$d h a week.</string>
+    <string name="apply_note_label">Note for the owner (optional)</string>
+    <string name="apply_privacy_everyone">%1$s can open your Skill Passport.</string>
+    <string name="apply_privacy_applied">Applying lets %1$s open your Skill Passport.</string>
+    <string name="apply_privacy_private">Your passport is visible only to you. %1$s will see your name, major and this application.</string>
+
+    <!-- Editor -->
+    <string name="editor_fix_fields">Fix the highlighted fields to publish.</string>
+    <string name="editor_title_error">Use 4 to 90 characters.</string>
+    <string name="editor_project_name">Project name</string>
+    <string name="editor_team_name">Team request title</string>
+    <string name="team_default_title">Team for %1$s</string>
+    <string name="editor_outcome">What will the project produce?</string>
+    <string name="editor_outcome_placeholder">A working Android prototype tested with 20 students</string>
+    <string name="editor_outcome_hint">The thing you’ll have at the end. Applicants read this first.</string>
+    <string name="editor_outcome_error">Describe the result in at least 10 characters.</string>
+    <string name="editor_team_goal">What will your team build or attempt? (optional)</string>
+    <string name="editor_team_goal_placeholder">An AI assistant for Riyadh bus routes</string>
+    <string name="editor_event_section">Event</string>
+    <string name="editor_choose_event">Choose the event</string>
+    <string name="editor_choose_event_hint">Applicants will see its rules, dates and official page.</string>
+    <string name="editor_event_error">Choose the event this team is for.</string>
+    <string name="editor_roles_section">Roles you need</string>
+    <string name="editor_roles_hint">Tap a role below to add it. Tap an added role to adjust its skills or places.</string>
+    <string name="editor_custom_role">Custom role</string>
+    <string name="editor_fewer_roles">Fewer roles</string>
+    <string name="editor_team_section">Your team</string>
+    <string name="editor_team_size">Already on the team, including you</string>
+    <string name="editor_commitment_section">Commitment</string>
+    <string name="editor_duration">How long</string>
+    <string name="editor_deadline">Applications close</string>
+    <string name="editor_deadline_none">No deadline</string>
+    <string name="editor_deadline_hint">Leave empty to keep applications open until you close them.</string>
+    <string name="editor_deadline_error">Choose today or a later date.</string>
+    <string name="editor_about">More details (optional)</string>
+    <string name="editor_about_placeholder">How you’ll work, what’s done already, links to your idea</string>
+    <string name="editor_event_name">Event name</string>
+    <string name="editor_organizer">Organizer</string>
+    <string name="editor_organizer_hint">Who runs the event. You’ll be shown as the person who shared it.</string>
+    <string name="editor_organizer_error">Enter who runs the event.</string>
+    <string name="editor_source">Official link</string>
+    <string name="editor_source_hint">Where students can check the rules and register.</string>
+    <string name="editor_source_error">Enter the event’s web address, like example.com/hackathon.</string>
+    <string name="editor_dates_section">Dates</string>
+    <string name="editor_starts">Starts</string>
+    <string name="editor_ends">Ends</string>
+    <string name="editor_dates_error">Choose a start date and an end date on or after it.</string>
+    <string name="editor_registration_deadline">Registration closes</string>
+    <string name="editor_registration_error">Registration must close on or before the last day.</string>
+    <string name="editor_rules_section">Team rules</string>
+    <string name="editor_team_min">Fewest members</string>
+    <string name="editor_team_max">Most members</string>
+    <string name="editor_eligibility_placeholder">Undergraduate students at Saudi universities</string>
+    <string name="editor_eligibility_error">Say who can take part.</string>
+    <string name="editor_where_section">Where</string>
+    <string name="editor_location">Location</string>
+    <string name="editor_event_about_placeholder">Challenge themes, prizes, anything else students should know</string>
+    <string name="discard_title">Discard this draft?</string>
+    <string name="discard_body">What you’ve entered will be lost.</string>
+    <string name="role_sheet_add_title">Add a role</string>
+    <string name="role_sheet_edit_title">Edit role</string>
+    <string name="role_templates_label">Start from a template</string>
+    <string name="role_title_label">Role name</string>
+    <string name="role_title_error">Give the role a name.</string>
+    <string name="role_description_label">What they’ll do (optional)</string>
+    <string name="role_skills_label">Skills it needs</string>
+    <string name="role_openings_label">Places</string>
+    <string name="event_picker_title">Which event is this team for?</string>
+    <string name="event_picker_search">Search events</string>
+    <string name="event_picker_missing">Can’t find it?</string>
+    <string name="event_picker_none">No upcoming events match. Share the event first, then find teammates from its page.</string>
+
+    <!-- Activity -->
+    <string name="activity_tab_applications">Applications</string>
+    <string name="activity_tab_listings">Your listings</string>
+    <string name="activity_no_applications_title">No applications yet</string>
+    <string name="activity_no_applications_body">Apply to a project or an event team and you can follow its status here.</string>
+    <string name="activity_find_opportunities">Find opportunities</string>
+    <string name="activity_no_listings_title">Nothing posted yet</string>
+    <string name="activity_no_listings_body">Recruit for a project, find teammates for an event, or share a competition.</string>
+    <string name="applied_as">Applied as %1$s</string>
+    <string name="no_applicants_yet">No applicants yet</string>
+
+    <!-- Applicants -->
+    <string name="applicants_title">Applicants</string>
+    <string name="applicants_filter_all">All %1$d</string>
+    <string name="applicants_filter_new">New %1$d</string>
+    <string name="applicants_filter_shortlisted">Shortlisted %1$d</string>
+    <string name="applicants_filter_withdrawn">Withdrawn %1$d</string>
+    <string name="applicants_new">New</string>
+    <string name="applicants_passport_hidden">Passport hidden</string>
+    <string name="applicants_none_title">No applicants yet</string>
+    <string name="applicants_none_body">When students apply, they appear here with their pitch and the skills they bring.</string>
+    <string name="applicants_filter_empty_title">No one here yet</string>
+    <string name="applicants_filter_empty_body">Nobody matches this filter right now.</string>
+    <string name="applicants_not_owner_title">Only the owner can review applicants</string>
+    <string name="applicants_not_owner_body">Applications to a listing are visible to the student who posted it.</string>
+    <string name="applicant_role_hours">%1$s, %2$d h a week</string>
+    <string name="applicant_title">Applicant</string>
+    <string name="applicant_applied_for">Applied for</string>
+    <string name="applicant_pitch">What they’d bring</string>
+    <string name="applicant_withdrew">Withdrew %1$s</string>
+    <string name="applied_when">Applied %1$s</string>
+    <string name="shortlist_note">Shortlisting keeps your picks together. It doesn’t add anyone to the team.</string>
+
+    <!-- Passport -->
+    <string name="passport_title">Skill Passport</string>
+    <string name="passport_basics">About you</string>
+    <string name="passport_skills">Skills</string>
+    <string name="passport_skills_empty">Add the skills you’d bring to a team.</string>
+    <string name="passport_interests">Interests</string>
+    <string name="passport_interests_empty">Add topics you’d like to work on.</string>
+    <string name="passport_availability">Availability</string>
+    <string name="passport_availability_empty">No hours added yet.</string>
+    <string name="passport_experience">Experience</string>
+    <string name="passport_experience_empty">Projects, internships, clubs or courses that show what you can do.</string>
+    <string name="passport_links">Work evidence</string>
+    <string name="passport_links_empty">Add links to code, designs or demos.</string>
+    <string name="passport_hidden_title">%1$s’s passport isn’t visible to you</string>
+    <string name="passport_hidden_applied">It opens for owners of listings they apply to.</string>
+    <string name="passport_hidden_private">They keep their passport private.</string>
+    <string name="passport_missing">%1$s hasn’t filled in a passport yet.</string>
+    <string name="nudge_skills">Add your skills so owners can see what you bring.</string>
+    <string name="nudge_availability">Add your weekly hours so teams can plan around you.</string>
+    <string name="nudge_links">Link to your work so owners can see what you’ve built.</string>
+    <string name="experience_add">Add experience</string>
+    <string name="experience_title">Role or project</string>
+    <string name="experience_title_placeholder">UI designer, clubs app</string>
+    <string name="experience_org">Organization or course</string>
+    <string name="experience_period">When</string>
+    <string name="experience_period_placeholder">Spring 2026</string>
+    <string name="experience_description">What you did (optional)</string>
+    <string name="experience_add_action">Add to list</string>
+    <string name="links_hint">Links to work you’ve done: code, designs, papers or demos.</string>
+    <string name="link_label">Label</string>
+    <string name="link_label_placeholder">GitHub, portfolio, demo video</string>
+    <string name="link_url">Web address</string>
+    <string name="link_url_error">Enter a web address like github.com/you/project.</string>
+    <string name="link_add_action">Add to list</string>
+    <string name="signed_in_as">Signed in as %1$s</string>
+    <string name="sign_out_title">Sign out of Takatuf?</string>
+    <string name="sign_out_body">You can sign back in with your email and password.</string>
+
+    <!-- Confirmations -->
+    <string name="msg_application_sent">Application sent. Follow it in Activity.</string>
+    <string name="msg_application_withdrawn">Application withdrawn</string>
+    <string name="msg_recruitment_closed">Recruitment closed</string>
+    <string name="msg_recruitment_reopened">Recruitment reopened</string>
+    <string name="msg_shortlisted">Added to shortlist</string>
+    <string name="msg_unshortlisted">Removed from shortlist</string>
+    <string name="msg_passport_saved">Passport saved</string>
+    <string name="msg_visibility_saved">Passport visibility updated</string>
+    <string name="msg_reset_sent">Password reset link sent to %1$s</string>
+
+    <!-- Plurals -->
+    <plurals name="needs_roles_more">
+        <item quantity="one">Needs %1$s and %2$d more role</item>
+        <item quantity="other">Needs %1$s and %2$d more roles</item>
+    </plurals>
+    <plurals name="apply_contribution_error">
+        <item quantity="one">Write at least %d character about what you’d bring.</item>
+        <item quantity="other">Write at least %d characters about what you’d bring.</item>
+    </plurals>
+    <plurals name="hours_per_week_long">
+        <item quantity="one">%d hour a week</item>
+        <item quantity="other">%d hours a week</item>
+    </plurals>
+    <plurals name="role_you_cover">
+        <item quantity="one">You have %1$d of %2$d skill this role asks for</item>
+        <item quantity="other">You have %1$d of %2$d skills this role asks for</item>
+    </plurals>
+    <plurals name="applicant_covers">
+        <item quantity="one">Has %1$d of the %2$d skill this role asks for</item>
+        <item quantity="other">Has %1$d of the %2$d skills this role asks for</item>
+    </plurals>
+    <plurals name="editor_more_roles">
+        <item quantity="one">%d more role</item>
+        <item quantity="other">%d more roles</item>
+    </plurals>
+    <plurals name="editor_team_size_over">
+        <item quantity="one">The event allows up to %1$d member. This team would have %2$d.</item>
+        <item quantity="other">The event allows up to %1$d members. This team would have %2$d.</item>
+    </plurals>
+    <plurals name="seats_a11y">
+        <item quantity="one">Team of %1$d, %2$d place open</item>
+        <item quantity="other">Team of %1$d, %2$d places open</item>
+    </plurals>
+    <plurals name="open_places_in_team">
+        <item quantity="one">open place in a team of %1$d</item>
+        <item quantity="other">open places in a team of %1$d</item>
+    </plurals>
+    <plurals name="places_count">
+        <item quantity="one">%d place</item>
+        <item quantity="other">%d places</item>
+    </plurals>
+    <plurals name="apply_places_left">
+        <item quantity="one">%1$d place open for %2$s</item>
+        <item quantity="other">%1$d places open for %2$s</item>
+    </plurals>
+    <plurals name="editor_team_summary">
+        <item quantity="one">Team of %1$d with %2$d open place</item>
+        <item quantity="other">Team of %1$d with %2$d open places</item>
+    </plurals>
+    <plurals name="team_size_exact">
+        <item quantity="one">Individual entries</item>
+        <item quantity="other">Teams of %d</item>
+    </plurals>
+    <plurals name="skills_match">
+        <item quantity="one">%d of your skills</item>
+        <item quantity="other">%d of your skills</item>
+    </plurals>
+    <plurals name="closes_in_days">
+        <item quantity="one">Closes tomorrow</item>
+        <item quantity="other">Closes in %d days</item>
+    </plurals>
+    <plurals name="results_count">
+        <item quantity="one">%d opportunity</item>
+        <item quantity="other">%d opportunities</item>
+    </plurals>
+    <plurals name="saved_count">
+        <item quantity="one">%d saved</item>
+        <item quantity="other">%d saved</item>
+    </plurals>
+    <plurals name="show_results">
+        <item quantity="one">Show %d result</item>
+        <item quantity="other">Show %d results</item>
+    </plurals>
+    <plurals name="teams_recruiting">
+        <item quantity="one">%d team recruiting</item>
+        <item quantity="other">%d teams recruiting</item>
+    </plurals>
+    <plurals name="review_applicants_count">
+        <item quantity="one">Review %d applicant</item>
+        <item quantity="other">Review %d applicants</item>
+    </plurals>
+    <plurals name="review_applicants_new">
+        <item quantity="one">Review applicants, %d new</item>
+        <item quantity="other">Review applicants, %d new</item>
+    </plurals>
+    <plurals name="applicants_count">
+        <item quantity="one">%d applicant</item>
+        <item quantity="other">%d applicants</item>
+    </plurals>
+    <plurals name="new_count">
+        <item quantity="one">%d new</item>
+        <item quantity="other">%d new</item>
+    </plurals>
+    <plurals name="shortlisted_count">
+        <item quantity="one">%d shortlisted</item>
+        <item quantity="other">%d shortlisted</item>
+    </plurals>
+    <plurals name="new_applicants_badge_a11y">
+        <item quantity="one">%d new applicant</item>
+        <item quantity="other">%d new applicants</item>
+    </plurals>
+</resources>

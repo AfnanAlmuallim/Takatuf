@@ -1,0 +1,198 @@
+[
+  {
+    "id": 1,
+    "slug": "login",
+    "caption": "Figure 1. Login screen providing university email and password fields, account creation and password recovery.",
+    "requirements": "US01 / FR01",
+    "mimeType": "image/png"
+  },
+  {
+    "id": 2,
+    "slug": "login-validation",
+    "caption": "Figure 2. Login validation identifies missing email and password fields.",
+    "requirements": "US01 / FR01",
+    "mimeType": "image/png"
+  },
+  {
+    "id": 3,
+    "slug": "forgot-password",
+    "caption": "Figure 3. Password recovery form requests a reset link by university email. Completion of a new-password flow requires access to the recipient mailbox and is not captured.",
+    "requirements": "US01 / FR01",
+    "mimeType": "image/png"
+  },
+  {
+    "id": 4,
+    "slug": "create-account",
+    "caption": "Figure 4. Account creation form collects the student's full name, university email and a password meeting the stated minimum requirements.",
+    "requirements": "US01 / FR01",
+    "mimeType": "image/png"
+  },
+  {
+    "id": 5,
+    "slug": "registration-validation",
+    "caption": "Figure 5. Registration validation identifies a missing full name and email and a password that does not meet the minimum rules.",
+    "requirements": "US01 / FR01",
+    "mimeType": "image/png"
+  },
+  {
+    "id": 6,
+    "slug": "passport-onboarding-identity",
+    "caption": "Figure 6. Successful registration opens Skill Passport onboarding, beginning with identity, major, study year and an optional headline.",
+    "requirements": "US01–US02 / FR01–FR02",
+    "mimeType": "image/png"
+  },
+  {
+    "id": 7,
+    "slug": "passport-onboarding-skills",
+    "caption": "Figure 7. Skill Passport onboarding allows students to select skills, proficiency levels and interests.",
+    "requirements": "US02 / FR02",
+    "mimeType": "image/png"
+  },
+  {
+    "id": 8,
+    "slug": "passport-onboarding-visibility",
+    "caption": "Figure 8. Final Skill Passport onboarding step provides weekly availability, preferred days and three profile visibility choices.",
+    "requirements": "US02 / FR02–FR03",
+    "mimeType": "image/png"
+  },
+  {
+    "id": 9,
+    "slug": "passport-visibility-options",
+    "caption": "Figure 9. Passport visibility choices are Everyone at Takatuf, Teams you apply to and Only you, with an explanation of each option.",
+    "requirements": "US02 / FR03",
+    "mimeType": "image/png"
+  },
+  {
+    "id": 10,
+    "slug": "discover-empty",
+    "caption": "Figure 10. Opportunity discovery home has search and category filters; no opportunities were available after onboarding.",
+    "requirements": "US06/FR07",
+    "mimeType": "image/png"
+  },
+  {
+    "id": 11,
+    "slug": "passport-saved",
+    "caption": "Figure 11. Afnan's saved Skill Passport displays identity, advanced Kotlin, six hours of weekly availability and public visibility.",
+    "requirements": "US02/FR02–FR03",
+    "mimeType": "image/png"
+  },
+  {
+    "id": 12,
+    "slug": "passport-visibility-editor",
+    "caption": "Figure 12. Passport visibility can be changed after onboarding using the three-option editor.",
+    "requirements": "US02/FR03",
+    "mimeType": "image/png"
+  },
+  {
+    "id": 13,
+    "slug": "passport-visibility-saved",
+    "caption": "Figure 13. The owner-facing Passport shows the saved Teams you apply to visibility setting. Access enforcement for another account remains to be demonstrated.",
+    "requirements": "US02/FR03",
+    "mimeType": "image/png"
+  },
+  {
+    "id": 14,
+    "slug": "passport-experience-editor",
+    "caption": "Figure 14. Experience editing supports a role or project, organization, period and optional description.",
+    "requirements": "US02/FR02",
+    "mimeType": "image/png"
+  },
+  {
+    "id": 15,
+    "slug": "posting-options",
+    "caption": "Figure 15. Posting offers project recruitment, event-linked teammate requests, and competition or hackathon sharing.",
+    "requirements": "US03–US05/FR04–FR06",
+    "mimeType": "image/png"
+  },
+  {
+    "id": 16,
+    "slug": "project-create",
+    "caption": "Figure 16. Project recruitment form includes outcome, reusable role templates and team size.",
+    "requirements": "US03/FR04–FR08",
+    "mimeType": "image/png"
+  },
+  {
+    "id": 17,
+    "slug": "project-validation",
+    "caption": "Figure 17. Publishing an empty project highlights required name, outcome and recruitment roles.",
+    "requirements": "US03/FR04",
+    "mimeType": "image/png"
+  },
+  {
+    "id": 18,
+    "slug": "project-role-template",
+    "caption": "Figure 18. Selecting Mobile developer adds a reusable role template with suggested skills and one vacancy.",
+    "requirements": "US03/FR04–FR08",
+    "mimeType": "image/png"
+  },
+  {
+    "id": 19,
+    "slug": "role-customization",
+    "caption": "Figure 19. Role customization supports a title, skill tags and open places.",
+    "requirements": "US03/FR08",
+    "mimeType": "image/png"
+  },
+  {
+    "id": 20,
+    "slug": "project-commitment",
+    "caption": "Figure 20. Project recruitment displays current team size, two open places, weekly commitment and duration choices.",
+    "requirements": "US03/FR04",
+    "mimeType": "image/png"
+  },
+  {
+    "id": 21,
+    "slug": "project-published-owner",
+    "caption": "Figure 21. Successfully published project details show the customized two vacancies, outcome and commitment. The owner receives Review applicants.",
+    "requirements": "US03/FR04",
+    "mimeType": "image/png"
+  },
+  {
+    "id": 22,
+    "slug": "applicants-empty",
+    "caption": "Figure 22. Owner applicant review initially shows no applicants, with All and Shortlisted tabs.",
+    "requirements": "US08/FR10",
+    "mimeType": "image/png"
+  },
+  {
+    "id": 23,
+    "slug": "project-owner-actions",
+    "caption": "Figure 23. The listing owner can edit or close recruitment using the details menu.",
+    "requirements": "US03/FR04",
+    "mimeType": "image/png"
+  },
+  {
+    "id": 24,
+    "slug": "project-edit",
+    "caption": "Figure 24. Owner editing loads the existing project name, outcome and customized role.",
+    "requirements": "US03/FR04",
+    "mimeType": "image/png"
+  },
+  {
+    "id": 25,
+    "slug": "discover-populated",
+    "caption": "Figure 25. Discovery lists the published demonstration project, requested role, weekly commitment and the Yours label.",
+    "requirements": "US06/FR07",
+    "mimeType": "image/png"
+  },
+  {
+    "id": 26,
+    "slug": "event-create",
+    "caption": "Figure 26. Event sharing supports Competition and Hackathon types, organizer, official source and dates.",
+    "requirements": "US04/FR05",
+    "mimeType": "image/png"
+  },
+  {
+    "id": 27,
+    "slug": "event-validation",
+    "caption": "Figure 27. Empty event submission highlights the required name, organizer, official link and dates.",
+    "requirements": "US04/FR05",
+    "mimeType": "image/png"
+  },
+  {
+    "id": 28,
+    "slug": "event-rules-location",
+    "caption": "Figure 28. Event creation includes team-size rules, eligibility, attendance format, location and descriptive details.",
+    "requirements": "US04/FR05",
+    "mimeType": "image/png"
+  }
+]

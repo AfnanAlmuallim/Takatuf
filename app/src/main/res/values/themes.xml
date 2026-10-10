@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="Theme.Takatuf" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/takatuf_paper</item>
+    </style>
+
+    <style name="Theme.Takatuf.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/takatuf_paper</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_mark</item>
+        <item name="postSplashScreenTheme">@style/Theme.Takatuf</item>
+    </style>
+</resources>

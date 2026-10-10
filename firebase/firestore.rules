@@ -1,0 +1,277 @@
+rules_version = '2';
+
+// Takatuf, Sprint 1: accounts, Skill Passports, listings, applications and saved items.
+// The app never relies on its own checks for permissions; everything below is enforced here,
+// including for requests made outside the app (NFR02).
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- helpers ----------
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isUser(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function changedKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    function text(value, min, max) {
+      return value is string && value.size() >= min && value.size() <= max;
+    }
+
+    function optionalText(data, key, max) {
+      return !(key in data) || data[key] == null || (data[key] is string && data[key].size() <= max);
+    }
+
+    function intBetween(value, min, max) {
+      return value is int && value >= min && value <= max;
+    }
+
+    function listUpTo(value, max) {
+      return value is list && value.size() <= max;
+    }
+
+    function optionalTimestamp(data, key) {
+      return !(key in data) || data[key] == null || data[key] is timestamp;
+    }
+
+    // ---------- public identity card: name, major, year, headline ----------
+
+    match /profiles/{uid} {
+      allow read: if signedIn();
+      allow create: if isUser(uid) && validProfile(incoming())
+        && (!('createdAt' in incoming()) || incoming().createdAt == request.time);
+      allow update: if isUser(uid) && validProfile(incoming())
+        && !changedKeys().hasAny(['createdAt']);
+      allow delete: if false;
+    }
+
+    function validProfile(d) {
+      return d.keys().hasOnly(['displayName', 'major', 'year', 'headline', 'visibility', 'onboarded', 'createdAt', 'updatedAt'])
+        && text(d.displayName, 1, 60)
+        && optionalText(d, 'major', 80)
+        && optionalText(d, 'headline', 140)
+        && d.visibility in ['everyone', 'applied', 'private']
+        && (!('year' in d) || d.year == null || intBetween(d.year, 1, 6))
+        && (!('onboarded' in d) || d.onboarded is bool)
+        && d.updatedAt == request.time;
+    }
+
+    // ---------- Skill Passport: visibility is enforced on every read (US02, FR03) ----------
+
+    match /passports/{uid} {
+      function visibility() {
+        return get(/databases/$(database)/documents/profiles/$(uid)).data.visibility;
+      }
+
+      function sharedWithViewer() {
+        return exists(/databases/$(database)/documents/passports/$(uid)/viewers/$(request.auth.uid));
+      }
+
+      allow get: if isUser(uid)
+        || (signedIn() && (visibility() == 'everyone' || (visibility() == 'applied' && sharedWithViewer())));
+      allow list: if false;
+      allow create, update: if isUser(uid) && validPassport(incoming());
+      allow delete: if false;
+
+      // Owners of listings the student applied to. Written by the student when applying.
+      match /viewers/{viewerId} {
+        allow read, delete: if isUser(uid);
+        allow create, update: if isUser(uid) && viewerId != uid
+          && incoming().keys().hasOnly(['listingId', 'grantedAt'])
+          && incoming().listingId is string
+          && incoming().grantedAt == request.time;
+      }
+    }
+
+    function validPassport(d) {
+      return d.keys().hasOnly(['skills', 'interests', 'experience', 'availability', 'links', 'updatedAt'])
+        && listUpTo(d.skills, 30)
+        && listUpTo(d.interests, 20)
+        && listUpTo(d.experience, 10)
+        && listUpTo(d.links, 8)
+        && d.availability is map
+        && d.availability.keys().hasOnly(['hoursPerWeek', 'days', 'note'])
+        && intBetween(d.availability.hoursPerWeek, 0, 60)
+        && listUpTo(d.availability.days, 7)
+        && d.availability.note is string && d.availability.note.size() <= 200
+        && d.updatedAt == request.time;
+    }
+
+    // ---------- private per-student data: saved listings (US06) ----------
+
+    match /users/{uid}/saved/{listingId} {
+      allow read, delete: if isUser(uid);
+      allow create, update: if isUser(uid)
+        && incoming().keys().hasOnly(['savedAt'])
+        && incoming().savedAt == request.time;
+    }
+
+    // ---------- listings: projects, event team requests and events (US03–US05) ----------
+
+    match /listings/{listingId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && incoming().ownerId == request.auth.uid
+        && incoming().status == 'open'
+        && incoming().createdAt == request.time
+        && validListing(incoming());
+      // Only the owner edits; ownership, kind and creation time never change.
+      allow update: if signedIn()
+        && resource.data.ownerId == request.auth.uid
+        && !changedKeys().hasAny(['ownerId', 'kind', 'createdAt'])
+        && validListing(incoming());
+      // Listings are closed rather than deleted so applicants keep a record.
+      allow delete: if false;
+
+      // ---------- applications (US07, US08) ----------
+      // The document id is the applicant's uid, so a second active application to the same
+      // listing cannot exist, however many times a request is retried.
+      match /applications/{applicantId} {
+        function listing() {
+          return get(/databases/$(database)/documents/listings/$(listingId)).data;
+        }
+
+        function isListingOwner() {
+          return signedIn() && listing().ownerId == request.auth.uid;
+        }
+
+        function accepting(l) {
+          return l.kind in ['project', 'team']
+            && l.status == 'open'
+            && (!('deadline' in l) || l.deadline == null || request.time < l.deadline);
+        }
+
+        // Unrelated students can neither read nor manage applications.
+        allow get: if isUser(applicantId) || isListingOwner();
+        allow list: if isListingOwner();
+
+        allow create: if isUser(applicantId)
+          && applicationKeys(incoming())
+          && validAnswer(incoming())
+          && incoming().applicantId == applicantId
+          && incoming().listingId == listingId
+          && incoming().ownerId == listing().ownerId
+          && incoming().listingKind == listing().kind
+          && listing().ownerId != applicantId
+          && accepting(listing())
+          && incoming().status == 'submitted'
+          && incoming().reviewed == false
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+
+        allow update: if applicationKeys(incoming()) && (
+          // The applicant withdraws an active application.
+          (isUser(applicantId)
+            && resource.data.status in ['submitted', 'shortlisted']
+            && incoming().status == 'withdrawn'
+            && changedKeys().hasOnly(['status', 'updatedAt'])
+            && incoming().updatedAt == request.time)
+          // The applicant applies again after withdrawing, while the listing is open.
+          || (isUser(applicantId)
+            && resource.data.status == 'withdrawn'
+            && incoming().status == 'submitted'
+            && incoming().reviewed == false
+            && changedKeys().hasOnly(['roleId', 'roleTitle', 'contribution', 'hoursPerWeek', 'availabilityNote',
+                                      'applicantName', 'applicantMajor', 'listingTitle', 'status', 'reviewed', 'updatedAt'])
+            && validAnswer(incoming())
+            && accepting(listing())
+            && incoming().updatedAt == request.time)
+          // The owner shortlists, un-shortlists or marks as reviewed. Membership never changes here.
+          || (isListingOwner()
+            && resource.data.status in ['submitted', 'shortlisted']
+            && incoming().status in ['submitted', 'shortlisted']
+            && changedKeys().hasOnly(['status', 'reviewed'])
+            && incoming().reviewed is bool)
+        );
+
+        allow delete: if false;
+      }
+    }
+
+    // "My applications" and "applications to my listings" are collection-group queries.
+    match /{path=**}/applications/{applicantId} {
+      allow list: if signedIn()
+        && (resource.data.applicantId == request.auth.uid || resource.data.ownerId == request.auth.uid);
+    }
+
+    function applicationKeys(d) {
+      return d.keys().hasOnly(['listingId', 'ownerId', 'applicantId', 'applicantName', 'applicantMajor', 'listingTitle',
+                               'listingKind', 'roleId', 'roleTitle', 'contribution', 'hoursPerWeek', 'availabilityNote',
+                               'status', 'reviewed', 'createdAt', 'updatedAt']);
+    }
+
+    function validAnswer(d) {
+      return text(d.roleId, 1, 40)
+        && text(d.roleTitle, 1, 60)
+        && text(d.contribution, 20, 1000)
+        && intBetween(d.hoursPerWeek, 1, 60)
+        && d.availabilityNote is string && d.availabilityNote.size() <= 200
+        && text(d.applicantName, 1, 60)
+        && d.applicantMajor is string
+        && text(d.listingTitle, 1, 90);
+    }
+
+    function validListing(d) {
+      return d.keys().hasOnly(['kind', 'status', 'title', 'description', 'ownerId', 'ownerName', 'ownerMajor',
+                               'createdAt', 'updatedAt', 'outcome', 'roles', 'hoursPerWeek', 'duration', 'teamSize',
+                               'openPlaces', 'deadline', 'skills', 'eventId', 'event', 'eventType', 'organizer',
+                               'sourceUrl', 'startDate', 'endDate', 'registrationDeadline', 'eligibility',
+                               'teamSizeMin', 'teamSizeMax', 'format', 'location'])
+        && d.kind in ['project', 'team', 'event']
+        && d.status in ['open', 'closed']
+        && text(d.title, 4, 90)
+        && optionalText(d, 'description', 2000)
+        && text(d.ownerName, 1, 60)
+        && optionalText(d, 'ownerMajor', 80)
+        && d.updatedAt == request.time
+        && (d.kind == 'event' ? validEvent(d) : validRecruitment(d));
+    }
+
+    function validRecruitment(d) {
+      return d.roles is list && d.roles.size() >= 1 && d.roles.size() <= 8
+        && intBetween(d.openPlaces, 1, 80)
+        && intBetween(d.teamSize, 1, 20)
+        && intBetween(d.hoursPerWeek, 1, 60)
+        && optionalText(d, 'duration', 40)
+        && optionalTimestamp(d, 'deadline')
+        && listUpTo(d.skills, 100)
+        && (d.kind == 'project' ? text(d.outcome, 10, 400) : validTeamRequest(d));
+    }
+
+    // A team request must point at a real event and respect its team-size rule (US05).
+    function validTeamRequest(d) {
+      let linked = get(/databases/$(database)/documents/listings/$(d.eventId)).data;
+      return d.eventId is string
+        && optionalText(d, 'outcome', 400)
+        && d.event is map
+        && linked.kind == 'event'
+        && d.teamSize + d.openPlaces <= linked.teamSizeMax;
+    }
+
+    // Events name their organizer and official source, separately from who shared them (US04).
+    function validEvent(d) {
+      return d.eventType in ['competition', 'hackathon']
+        && text(d.organizer, 1, 80)
+        && text(d.sourceUrl, 10, 300) && d.sourceUrl.matches('https?://.+')
+        && d.startDate is timestamp && d.endDate is timestamp && d.startDate < d.endDate
+        && (!('registrationDeadline' in d) || d.registrationDeadline == null
+            || (d.registrationDeadline is timestamp && d.registrationDeadline <= d.endDate))
+        && text(d.eligibility, 1, 500)
+        && intBetween(d.teamSizeMin, 1, 20)
+        && intBetween(d.teamSizeMax, 1, 20)
+        && d.teamSizeMin <= d.teamSizeMax
+        && d.format in ['in_person', 'online', 'hybrid']
+        && optionalText(d, 'location', 80);
+    }
+  }
+}

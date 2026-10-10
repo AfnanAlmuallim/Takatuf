@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "599095768096",
+    "project_id": "takatuf-5a37f",
+    "storage_bucket": "takatuf-5a37f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:599095768096:android:38f425bbc51da554eef845",
+        "android_client_info": {
+          "package_name": "com.z.takatuf"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDKiHZyiHHVtpHHnm7ppq46AGFZ5YeSTOk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

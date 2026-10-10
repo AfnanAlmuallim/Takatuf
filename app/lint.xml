@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!-- Versions are pinned to what Android Studio 2025.2.3 supports (AGP 9.0.x, compileSdk 36).
+         The newer releases lint suggests need AGP 9.1+ and compileSdk 37; upgrade them together
+         with Android Studio. -->
+    <issue id="GradleDependency" severity="informational" />
+    <issue id="NewerVersionAvailable" severity="informational" />
+    <issue id="AndroidGradlePluginVersion" severity="informational" />
+</lint>

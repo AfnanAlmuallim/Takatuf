@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose code takes its colours from ui/theme/Color.kt; these exist for the
+         launcher icon and splash screen, which are drawn before Compose starts. -->
+    <color name="takatuf_paper">#FFFFFFFF</color>
+    <color name="takatuf_night">#FF061229</color>
+    <color name="ic_launcher_background">#FFFFFFFF</color>
+</resources>
