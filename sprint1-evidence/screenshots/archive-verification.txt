@@ -1,1 +1,0 @@
-2026-10-05: unzip -t returned exit code 0. All 80 PNGs plus figure-register.json and README.md passed CRC checks.
