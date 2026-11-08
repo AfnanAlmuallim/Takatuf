@@ -4,8 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.z.takatuf.R
 import com.z.takatuf.data.AppError
+import com.z.takatuf.data.DraftStore
 import com.z.takatuf.data.ApplicationRepository
 import com.z.takatuf.data.ListingRepository
+import com.z.takatuf.data.NotificationRepository
 import com.z.takatuf.data.SavedRepository
 import com.z.takatuf.data.Session
 import com.z.takatuf.data.attempt
@@ -14,6 +16,8 @@ import com.z.takatuf.data.model.ApplicationStatus
 import com.z.takatuf.data.model.Listing
 import com.z.takatuf.data.model.ListingKind
 import com.z.takatuf.data.model.ListingStatus
+import com.z.takatuf.data.model.NotificationTarget
+import com.z.takatuf.data.model.NotificationType
 import com.z.takatuf.data.model.Visibility
 import com.z.takatuf.data.toAppError
 import com.z.takatuf.ui.common.UserMessage
@@ -33,6 +37,7 @@ import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 data class ApplicantCounts(val active: Int, val new: Int, val shortlisted: Int)
 
@@ -89,6 +94,8 @@ class ListingDetailViewModel(
     private val listings: ListingRepository,
     private val applications: ApplicationRepository,
     private val saved: SavedRepository,
+    private val notifications: NotificationRepository,
+    private val drafts: DraftStore,
 ) : ViewModel() {
 
     private val uid = session.uid.orEmpty()
@@ -191,10 +198,17 @@ class ListingDetailViewModel(
         val applicant = session.profile ?: return
         val role = listing.recruitment?.roles?.firstOrNull { it.id == roleId } ?: return
         if (transient.value.applying) return
+        if (listing.closedReason(java.time.Instant.now(), state.value.event) != null) {
+            transient.update { it.copy(applyError = AppError.NotAccepting) }
+            return
+        }
         transient.update { it.copy(applying = true, applyError = null) }
+        val actionId = UUID.randomUUID().toString()
         viewModelScope.launch {
             attempt { applications.apply(listing, applicant, role, contribution, hoursPerWeek, note) }
                 .onSuccess {
+                    drafts.clear(DraftStore.application(listing.id))
+                    tellOwner(actionId, NotificationType.ApplicationReceived, NotificationTarget.Applicant)
                     transient.update {
                         it.copy(
                             applying = false,
@@ -218,17 +232,45 @@ class ListingDetailViewModel(
     /** Joins the team. Capacity and the offer's expiry are checked in the same transaction (US12). */
     fun acceptOffer() {
         val me = session.profile ?: return
-        runBusy(R.string.msg_joined_team, listOf(state.value.listing?.title.orEmpty()), joined = true) {
+        val actionId = UUID.randomUUID().toString()
+        runBusy(
+            R.string.msg_joined_team, listOf(state.value.listing?.title.orEmpty()), joined = true,
+            after = { tellOwner(actionId, NotificationType.OfferAccepted, NotificationTarget.Workspace) },
+        ) {
             applications.acceptOffer(listingId, me)
         }
     }
 
-    fun declineOffer() = runBusy(R.string.msg_offer_declined, listOf(state.value.listing?.title.orEmpty())) {
-        applications.declineOffer(listingId, uid)
+    fun declineOffer() {
+        val actionId = UUID.randomUUID().toString()
+        runBusy(
+            R.string.msg_offer_declined, listOf(state.value.listing?.title.orEmpty()),
+            after = { tellOwner(actionId, NotificationType.OfferDeclined, NotificationTarget.Applicants) },
+        ) {
+            applications.declineOffer(listingId, uid)
+        }
     }
 
-    fun confirmInterest() = runBusy(R.string.msg_interest_confirmed, listOf(state.value.listing?.title.orEmpty())) {
-        applications.confirmInterest(listingId, uid)
+    fun confirmInterest() {
+        val actionId = UUID.randomUUID().toString()
+        runBusy(
+            R.string.msg_interest_confirmed, listOf(state.value.listing?.title.orEmpty()),
+            after = { tellOwner(actionId, NotificationType.InterestConfirmed, NotificationTarget.Applicant) },
+        ) {
+            applications.confirmInterest(listingId, uid)
+        }
+    }
+
+    /** Lets the owner know what this student did; never holds up the action itself (US19). */
+    private fun tellOwner(actionId: String, type: NotificationType, target: NotificationTarget) {
+        val listing = state.value.listing ?: return
+        val me = session.profile ?: return
+        viewModelScope.launch {
+            notifications.send(
+                actionId, listOf(listing.ownerId), type, listing.id, listing.title, me.uid, me.displayName, target,
+                targetId = if (target == NotificationTarget.Applicant) "${listing.id}/${me.uid}" else listing.id,
+            )
+        }
     }
 
     fun setRecruitmentOpen(open: Boolean) = runBusy(
@@ -237,18 +279,25 @@ class ListingDetailViewModel(
         listings.setStatus(listingId, if (open) ListingStatus.Open else ListingStatus.Closed)
     }
 
-    private fun runBusy(successMessage: Int, args: List<Any> = emptyList(), joined: Boolean = false, block: suspend () -> Unit) {
+    private fun runBusy(
+        successMessage: Int,
+        args: List<Any> = emptyList(),
+        joined: Boolean = false,
+        after: () -> Unit = {},
+        block: suspend () -> Unit,
+    ) {
         if (transient.value.busy) return
         transient.update { it.copy(busy = true) }
         viewModelScope.launch {
             val result = attempt { block() }
+            if (result.isSuccess) after()
             transient.update {
                 it.copy(
                     busy = false,
                     joinedAt = if (joined && result.isSuccess) System.nanoTime() else it.joinedAt,
                     message = result.fold(
                         onSuccess = { UserMessage(successMessage, args) },
-                        onFailure = { e -> UserMessage(e.toAppError().message) },
+                        onFailure = { e -> UserMessage(e.toAppError().message, retry = { runBusy(successMessage, args, joined, after, block) }) },
                     ),
                 )
             }

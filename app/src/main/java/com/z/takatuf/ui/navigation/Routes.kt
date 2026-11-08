@@ -46,4 +46,20 @@ data class WorkspaceRoute(val listingId: String)
 @Serializable
 data class PersonRoute(val uid: String)
 
+/** Reviewing teammates after a project ends or someone leaves (US18). */
+@Serializable
+data class FeedbackRoute(val listingId: String)
+
+/** The student's notifications (US19). */
+@Serializable
+data object NotificationsRoute
+
+/** The administrators' report queue (US20). */
+@Serializable
+data object ModerationRoute
+
+/** One report, for an administrator to act on. */
+@Serializable
+data class ReportRoute(val id: String)
+
 const val DeepLinkScheme = "takatuf://"

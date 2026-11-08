@@ -1,5 +1,6 @@
 // Fills the local Firebase emulators with synthetic students, events, projects,
-// applications, an offer and a working team with its workspace (charter §6.5: synthetic
+// applications, an offer, a working team with its workspace, a completed project with its
+// records and feedback, reports for the moderator and notifications (charter, Data and Evaluation: synthetic
 // profiles for development and testing).
 //
 //   npm run emulators          # in one terminal
@@ -204,7 +205,7 @@ const eventIds = {};
 for (const [key, e] of Object.entries(events)) {
   eventIds[key] = `event-${key}`;
   await put(`listings/${eventIds[key]}`, {
-    kind: 'event', status: 'open', title: e.title, description: e.description, ...owner(e.by),
+    kind: 'event', status: 'open', hidden: false, title: e.title, description: e.description, ...owner(e.by),
     createdAt: ago(e.createdHoursAgo), updatedAt: ago(e.createdHoursAgo),
     eventType: e.eventType, organizer: e.organizer, sourceUrl: e.sourceUrl,
     startDate: dayStart(e.start), endDate: dayEnd(e.end), registrationDeadline: dayEnd(e.reg),
@@ -306,7 +307,7 @@ const listingIds = {};
 for (const [key, l] of Object.entries(listings)) {
   listingIds[key] = `${l.kind}-${key}`;
   await put(`listings/${listingIds[key]}`, {
-    kind: l.kind, status: l.status ?? 'open', title: l.title, description: l.description, ...owner(l.by),
+    kind: l.kind, status: l.status ?? 'open', hidden: false, title: l.title, description: l.description, ...owner(l.by),
     createdAt: ago(l.hoursAgo), updatedAt: ago(l.hoursAgo),
     outcome: l.outcome, ...recruiting(l.roles), hoursPerWeek: l.hours, duration: l.duration,
     teamSize: l.teamSize, deadline: l.deadline === null ? null : dayEnd(l.deadline),
@@ -363,7 +364,7 @@ await apply('cyberTeam', 'omar', 'sec', 'I play CTFs every weekend and placed in
   await milestone('m1', 'Agree on the sensor data format', 'faisal', -3, 'done', 18);
   await milestone('m2', 'API that stores bay readings', 'faisal', -1, 'doing', 16);
   await milestone('m3', 'Map screen shows live free bays', 'sara', 6, 'todo', 12);
-  await milestone('m4', 'Trial with 30 drivers in lot B', 'sara', null, 'todo', 10);
+  await milestone('m4', 'Trial with 30 drivers in lot B', 'sara', 21, 'todo', 10);
   await put(`${ws}/updates/u1`, {
     authorId: uid.faisal, authorName: people.faisal.name,
     text: 'Readings now arrive every minute from the two test sensors. Next: storing them and a /free-bays endpoint.',
@@ -386,11 +387,147 @@ await apply('cyberTeam', 'omar', 'sec', 'I play CTFs every weekend and placed in
   await put(`${ws}/responsibilities/${uid.faisal}`, { text: 'Sensor API and database', updatedBy: uid.faisal, updatedAt: ago(14) });
 }
 
+// ---------- participation records, a finished project, feedback and moderation (Sprint 3) ----------
+const participation = (who, listingId, title, kind, roleTitle, wasLead, status, startedHoursAgo, endedHoursAgo = null) =>
+  put(`passports/${uid[who]}/participation/${listingId}`, {
+    listingId, listingTitle: title, kind, role: roleTitle, wasLead, status,
+    startedAt: ago(startedHoursAgo), endedAt: endedHoursAgo === null ? null : ago(endedHoursAgo), updatedAt: ago(endedHoursAgo ?? 2),
+  });
+
+// The parking team is still running.
+await participation('sara', listingIds.parking, listings.parking.title, 'project', 'Lead', true, 'active', 50);
+await participation('faisal', listingIds.parking, listings.parking.title, 'project', 'Backend developer', false, 'active', 20);
+for (const key of ['dashboard', 'chatbot', 'lostfound', 'campaign']) {
+  const l = listings[key];
+  await participation(l.by, listingIds[key], l.title, l.kind, 'Lead', true, 'active', l.hoursAgo);
+}
+for (const key of ['najdTeam', 'healthTeam', 'cyberTeam']) {
+  const l = listings[key];
+  await participation(l.by, listingIds[key], l.title, l.kind, 'Lead', true, 'active', l.hoursAgo);
+}
+
+// Omar's orientation app finished ten days ago. Reem and Hessa stayed to the end; Lama left early.
+const orientationId = 'project-orientation';
+const orientationTitle = 'New student orientation app';
+await put(`listings/${orientationId}`, {
+  kind: 'project', status: 'closed', title: orientationTitle, ...owner('omar'),
+  description: 'Built with Student Affairs for the fall intake.',
+  createdAt: ago(24 * 80), updatedAt: ago(24 * 10),
+  outcome: 'An app that guides first-year students through their first two weeks on campus.',
+  ...recruiting([
+    role('data', 'Data analyst', ['Python', 'Data analysis'], 0),
+    role('pm', 'Project coordinator', ['Project management', 'Technical writing'], 0),
+  ]),
+  hoursPerWeek: 5, duration: '10 weeks', teamSize: 3, deadline: dayEnd(-60),
+  members: {
+    [uid.reem]: { name: people.reem.name, major: people.reem.major, roleId: 'data', roleTitle: 'Data analyst', joinedAt: ago(24 * 70) },
+    [uid.hessa]: { name: people.hessa.name, major: people.hessa.major, roleId: 'pm', roleTitle: 'Project coordinator', joinedAt: ago(24 * 68) },
+  },
+  memberIds: [uid.reem, uid.hessa],
+  completedAt: ago(24 * 10),
+  completion: { summary: 'Shipped to 600 new students; 4.5 of 5 in the Student Affairs survey.', link: 'https://example.org/orientation-app' },
+});
+await participation('omar', orientationId, orientationTitle, 'project', 'Lead', true, 'completed', 24 * 80, 24 * 10);
+await participation('reem', orientationId, orientationTitle, 'project', 'Data analyst', false, 'completed', 24 * 70, 24 * 10);
+await participation('hessa', orientationId, orientationTitle, 'project', 'Project coordinator', false, 'completed', 24 * 68, 24 * 10);
+await participation('lama', orientationId, orientationTitle, 'project', 'Project coordinator', false, 'left', 24 * 75, 24 * 69);
+for (const [who, roleId, roleTitle, status] of [['reem', 'data', 'Data analyst', 'accepted'], ['hessa', 'pm', 'Project coordinator', 'accepted'], ['lama', 'pm', 'Project coordinator', 'left']]) {
+  await put(`listings/${orientationId}/applications/${uid[who]}`, {
+    listingId: orientationId, ownerId: uid.omar, applicantId: uid[who], applicantName: people[who].name,
+    applicantMajor: people[who].major, listingTitle: orientationTitle, listingKind: 'project', roleId, roleTitle,
+    contribution: 'Seeded application for the finished project.', hoursPerWeek: 5, availabilityNote: '', status, reviewed: true,
+    createdAt: ago(24 * 76), updatedAt: ago(24 * 69),
+  });
+}
+
+const contribution = (who, id, title, detail, links, confirmedBy = null) => put(`passports/${uid[who]}/contributions/${id}`, {
+  listingId: orientationId, listingTitle: orientationTitle, title, detail, links,
+  recordedBy: uid[who], recordedByName: people[who].name,
+  confirmedBy: confirmedBy ? uid[confirmedBy] : null, confirmedByName: confirmedBy ? people[confirmedBy].name : null,
+  confirmedAt: confirmedBy ? ago(24 * 9) : null, createdAt: ago(24 * 12), updatedAt: ago(24 * 9),
+});
+await contribution('reem', 'c-survey', 'Analysed the onboarding survey', 'Cleaned 1,200 responses and found the three steps where students got lost.', ['https://example.org/survey-notebook'], 'omar');
+await contribution('reem', 'c-dashboard', 'Usage dashboard for Student Affairs', '', ['https://example.org/usage-dashboard']);
+await contribution('hessa', 'c-plan', 'Ran the weekly plan and stand-ups', 'Kept the ten-week plan and wrote the handover guide.', []);
+await contribution('omar', 'c-security', 'Security review before launch', 'Threat model and fixes for the sign-in flow.', ['https://example.org/threat-model']);
+
+const review = (subject, reviewer, contributionScore, leadership, comment, dispute = '') =>
+  put(`passports/${uid[subject]}/feedback/${orientationId}_${uid[reviewer]}`, {
+    listingId: orientationId, listingTitle: orientationTitle, reviewerUid: uid[reviewer], reviewerName: people[reviewer].name,
+    contribution: contributionScore, leadership, comment,
+    disputed: dispute !== '', disputeReason: dispute, disputedAt: dispute ? ago(24 * 5) : null,
+    hidden: false, moderationNote: '', createdAt: ago(24 * 8), updatedAt: ago(24 * 8),
+  });
+await review('reem', 'omar', 5, null, 'Turned a messy survey into the decisions that shaped the app.');
+await review('omar', 'reem', 4, 4, 'Clear priorities every week and quick to unblock us.');
+await review('hessa', 'reem', 4, null, 'Kept everyone on track without micromanaging.');
+await review('omar', 'hessa', 3, 2, 'Decisions were often made without the rest of the team.',
+  'This review is about one week when I was away for exams; the decisions were agreed in the group chat.');
+
+// ---------- the moderator and reports (US20) ----------
+const moderatorUid = await createUser('moderator@takatuf.test', 'Takatuf Moderator');
+await put(`profiles/${moderatorUid}`, {
+  displayName: 'Takatuf Moderator', major: 'Student Affairs', year: 4, headline: 'Reviews reports for the PSU pilot.',
+  visibility: 'private', onboarded: true, createdAt: ago(24 * 30), updatedAt: ago(24),
+});
+await put(`passports/${moderatorUid}`, { skills: [], interests: [], experience: [], availability: { hoursPerWeek: 0, days: [], note: '' }, links: [], updatedAt: ago(24) });
+// Administrators are listed here by the project team; the app itself never writes this collection.
+await put(`admins/${moderatorUid}`, { name: 'Takatuf Moderator', addedAt: ago(24 * 30) });
+
+const reportDoc = (type, targetKey, reporter, fields) => put(`reports/${type}_${targetKey}_${uid[reporter]}`, {
+  reporterUid: uid[reporter], reporterName: people[reporter].name, targetType: type, targetKey,
+  status: 'open', resolution: '', resolvedBy: null, resolvedAt: null, details: '', ...fields,
+});
+const disputedKey = `${uid.omar}_${orientationId}_${uid.hessa}`;
+await reportDoc('feedback', disputedKey, 'omar', {
+  targetPath: `passports/${uid.omar}/feedback/${orientationId}_${uid.hessa}`,
+  targetTitle: `Feedback from ${people.hessa.name} on ${orientationTitle}`, targetOwnerUid: uid.hessa, listingId: orientationId,
+  reason: 'unfair_feedback', details: 'This review is about one week when I was away for exams; the decisions were agreed in the group chat.',
+  createdAt: ago(24 * 5), updatedAt: ago(24 * 5),
+});
+await reportDoc('listing', listingIds.lostfound, 'lama', {
+  targetPath: `listings/${listingIds.lostfound}`, targetTitle: listings.lostfound.title, targetOwnerUid: uid.faisal,
+  listingId: listingIds.lostfound, reason: 'inaccurate', details: 'Campus security says the pilot was cancelled.',
+  createdAt: ago(30), updatedAt: ago(30),
+});
+await reportDoc('user', uid.yousef, 'hessa', {
+  targetPath: `profiles/${uid.yousef}`, targetTitle: people.yousef.name, targetOwnerUid: uid.yousef, listingId: '',
+  reason: 'spam', details: 'Sent the same message to everyone.', status: 'dismissed',
+  resolution: 'One message to each team he applied to; not spam.', resolvedBy: moderatorUid, resolvedAt: ago(24 * 2),
+  createdAt: ago(24 * 4), updatedAt: ago(24 * 2),
+});
+
+// ---------- notifications (US19) ----------
+const notify = (to, id, type, listingKey, from, target, extra = {}) => put(`users/${uid[to]}/notifications/${id}`, {
+  type, listingId: listingIds[listingKey] ?? listingKey, listingTitle: listings[listingKey]?.title ?? orientationTitle,
+  fromUid: uid[from], fromName: people[from].name, target, targetId: listingIds[listingKey] ?? listingKey, note: '',
+  read: false, createdAt: ago(1), ...extra,
+});
+await notify('sara', 'seed-offer', 'offer_received', 'lostfound', 'faisal', 'activity', { createdAt: ago(5) });
+await notify('sara', 'seed-apply', 'application_received', 'parking', 'nora', 'applicant',
+  { targetId: `${listingIds.parking}/${uid.nora}`, createdAt: ago(3) });
+await notify('sara', 'seed-milestone', 'milestone_assigned', 'parking', 'faisal', 'workspace',
+  { note: 'Map screen shows live free bays', read: true, createdAt: ago(12) });
+await notify('reem', 'seed-complete', 'project_completed', orientationId, 'omar', 'workspace',
+  { listingTitle: orientationTitle, read: true, createdAt: ago(24 * 10) });
+await notify('omar', 'seed-feedback', 'feedback_received', orientationId, 'reem', 'passport',
+  { listingTitle: orientationTitle, targetId: '', createdAt: ago(24 * 8) });
+
+// ---------- audit log (US22) ----------
+const audit = (id, action, actor, listingId, subject, detail, hoursAgo) => put(`auditLog/${id}`, {
+  action, actorUid: uid[actor] ?? actor, listingId, subjectUid: subject ? uid[subject] : '', detail, at: ago(hoursAgo),
+});
+await audit('seed-a1', 'offer_sent', 'sara', listingIds.parking, 'faisal', 'recommendation: coverage, covers 6 of 9 skills', 30);
+await audit('seed-a2', 'offer_accepted', 'faisal', listingIds.parking, 'faisal', '', 20);
+await audit('seed-a3', 'project_completed', 'omar', orientationId, null, 'Shipped to 600 new students', 24 * 10);
+await audit('seed-a4', 'feedback_disputed', 'omar', orientationId, 'hessa', 'Away for exams that week', 24 * 5);
+
 // ---------- saved ----------
 await put(`users/${uid.sara}/saved/${eventIds.najd}`, { savedAt: ago(12) });
 await put(`users/${uid.sara}/saved/${listingIds.dashboard}`, { savedAt: ago(4) });
 
 console.log(`Seeded project "${PROJECT}": ${Object.keys(people).length} students, ${Object.keys(events).length} events, ${Object.keys(listings).length} projects and team requests.`);
 console.log('Sprint 2: Sara leads the parking team with Faisal (workspace filled in) and has an offer waiting on Lost and found.');
+console.log('Sprint 3: Omar’s orientation app is completed with records, contributions and feedback (one disputed); moderator@takatuf.test is an administrator with open reports.');
 console.log(`Sign in as any of: ${Object.values(people).map((p) => p.email).join(', ')}`);
 console.log(`Password: ${PASSWORD}`);

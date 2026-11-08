@@ -69,6 +69,6 @@ class Sprint02MatchingEvaluationTest {
             """{"scenario":"${s.id}","places":${s.places},"eligibleApplicants":${eligible.size},"selected":["${selected.picks.joinToString("\",\"") { it.applicantId }}"],"matchingCoverage":${selected.coverage},"individualFitCoverage":${coverage(individual)},"randomExpectedCoverage":$randomExpected,"simpleGapCoverage":${coverage(gapPicks)},"unfilled":${selected.emptyPlaces}}"""
         }
         val output = """{"evaluationType":"Controlled synthetic algorithm correctness","studentParticipants":0,"scenarios":[${rows.joinToString(",")}]}"""
-        File("/Users/abdulahad/Documents/Takatuf/Appliccation/Sprint 2 Codebase/Takatuf/Sprint02_Evidence/run-mvfa0h0h/matching-evaluation.json").writeText(output)
+        File("build/evaluation").apply { mkdirs() }.resolve("sprint02-matching-evaluation.json").writeText(output)
     }
 }

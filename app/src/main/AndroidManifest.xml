@@ -3,10 +3,12 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:name=".TakatufApplication"
         android:allowBackup="false"
+        android:usesCleartextTraffic="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="false"
         android:enableOnBackInvokedCallback="true"
@@ -27,7 +29,7 @@
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- takatuf://listing/{id}, takatuf://applicants/{id}, takatuf://person/{uid}, takatuf://team/{id} -->
+            <!-- takatuf://listing/{id}, applicants/{id}, applicant/{id}/{uid}, person/{uid}, team/{id}, report/{id}, inbox, activity, teams, passport -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
 

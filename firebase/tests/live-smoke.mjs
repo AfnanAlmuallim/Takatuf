@@ -1,15 +1,15 @@
 // End-to-end check of a real Firebase project after `npm run deploy:firestore`.
 // It signs up three throwaway QA accounts, performs the same reads and writes the Android app
-// makes, and checks each Sprint 1 and Sprint 2 permission. Everything it creates is recorded in
+// makes, and checks each Sprint 1, 2 and 3 permission. Everything it creates is recorded in
 // tests/.live-smoke-created.json so `npm run smoke:cleanup` can remove it.
 //
 //   npm run smoke
 import { readFileSync, writeFileSync } from 'node:fs';
 import { initializeApp, deleteApp } from 'firebase/app';
-import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
+import { getAuth, createUserWithEmailAndPassword, connectAuthEmulator } from 'firebase/auth';
 import {
   Timestamp, arrayRemove, arrayUnion, collection, collectionGroup, deleteField, doc, getDoc, getDocs,
-  getFirestore, limit, orderBy, query, runTransaction, serverTimestamp, setDoc, terminate, updateDoc,
+  connectFirestoreEmulator, getFirestore, limit, orderBy, query, runTransaction, serverTimestamp, setDoc, terminate, updateDoc,
   where, writeBatch,
 } from 'firebase/firestore';
 
@@ -22,7 +22,8 @@ const config = {
 const RUN = Date.now().toString(36);
 const PASSWORD = `Qa-${RUN}-pass1`;
 const created = { project: config.projectId, run: RUN, users: [], docs: [] };
-const record = () => writeFileSync(new URL('./.live-smoke-created.json', import.meta.url), JSON.stringify(created, null, 2));
+// Emulator runs leave nothing behind in the real project, so there is nothing to record for cleanup.
+const record = () => process.env.SMOKE_EMULATOR || writeFileSync(new URL('./.live-smoke-created.json', import.meta.url), JSON.stringify(created, null, 2));
 
 let passed = 0;
 let failed = 0;
@@ -64,10 +65,16 @@ async function student(role) {
   const app = initializeApp(config, `${role}-${RUN}`);
   const auth = getAuth(app);
   const email = `qa-${role}-${RUN}@takatuf.test`;
+  const db = getFirestore(app);
+  // SMOKE_EMULATOR=1 runs the same checks against the local emulators, before deploying.
+  if (process.env.SMOKE_EMULATOR) {
+    connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+    connectFirestoreEmulator(db, '127.0.0.1', 8080);
+  }
   const { user } = await createUserWithEmailAndPassword(auth, email, PASSWORD);
   created.users.push({ email, uid: user.uid });
   record();
-  return { app, auth, uid: user.uid, db: getFirestore(app), email };
+  return { app, auth, uid: user.uid, db, email };
 }
 
 const DAY = 86_400_000;
@@ -95,14 +102,14 @@ const passport = {
 };
 const role = { id: 'mob', title: 'Mobile developer', description: '', skills: ['Kotlin'], openings: 2 };
 const projectListing = {
-  kind: 'project', status: 'open', title: `[QA ${RUN}] Sprint 1 smoke test`, description: 'Automated test data; safe to delete.',
+  kind: 'project', status: 'open', hidden: false, title: `[QA ${RUN}] Sprint 1 smoke test`, description: 'Automated test data; safe to delete.',
   ownerId: owner.uid, ownerName: 'QA Owner', ownerMajor: 'Software Engineering',
   createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
   outcome: 'Proves the deployed rules and indexes work', roles: [role], hoursPerWeek: 6, duration: '4 weeks',
   teamSize: 1, openPlaces: 2, deadline: endOfDay(7), skills: ['kotlin'],
 };
 const eventListing = {
-  kind: 'event', status: 'open', title: `[QA ${RUN}] Test hackathon`, description: '',
+  kind: 'event', status: 'open', hidden: false, title: `[QA ${RUN}] Test hackathon`, description: '',
   ownerId: owner.uid, ownerName: 'QA Owner', ownerMajor: '', createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
   eventType: 'hackathon', organizer: 'QA Organizer', sourceUrl: 'https://example.org/qa-hackathon',
   startDate: startOfDay(10), endDate: endOfDay(11), registrationDeadline: endOfDay(8),
@@ -162,12 +169,12 @@ await check('other students cannot edit the listing', () =>
 
 console.log('\nUS06 discover and save');
 await check('the feed query returns the new listings', async () => {
-  const snap = await getDocs(query(collection(applicant.db, 'listings'), orderBy('createdAt', 'desc'), limit(250)));
+  const snap = await whenIndexReady(() => getDocs(query(collection(applicant.db, 'listings'), where('hidden', '==', false), orderBy('createdAt', 'desc'), limit(250))));
   const ids = snap.docs.map((d) => d.id);
   if (!ids.includes(projectRef.id) || !ids.includes(eventRef.id)) throw new Error('new listings not in feed');
 });
 await check('teams for an event are found by eventId', async () => {
-  const snap = await getDocs(query(collection(applicant.db, 'listings'), where('eventId', '==', eventRef.id)));
+  const snap = await getDocs(query(collection(applicant.db, 'listings'), where('eventId', '==', eventRef.id), where('hidden', '==', false)));
   if (snap.size !== 1) throw new Error(`expected 1 team, got ${snap.size}`);
 });
 await check('a student saves a listing privately', async () => {
@@ -346,6 +353,178 @@ await check('a member leaves and loses workspace access at once', async () => {
     });
   });
   await denied(getDocs(collection(owner.db, 'listings', team2Ref.id, 'milestones')));
+});
+
+// ---------- Defect retests (Takatuf_Sprint_1_and_2_Defects.md) ----------
+console.log('\nDefect retests on the deployed rules');
+// Names must match each account's profile; the rules refuse made-up names.
+const qaName = (s) => ({ [owner.uid]: 'QA Owner', [applicant.uid]: 'QA Applicant', [outsider.uid]: 'QA Outsider' })[s.uid];
+const teamApp = (s) => setDoc(doc(s.db, 'listings', teamRef.id, 'applications', s.uid), {
+  ...application, applicantId: s.uid, applicantName: qaName(s), listingId: teamRef.id, listingTitle: `[QA ${RUN}] Team for test hackathon`, listingKind: 'team',
+});
+await check('D1/I10 a linked request takes applications while its event is on', () => teamApp(outsider));
+await check('D1/I10 once the event is moved into the past, its linked request refuses applications', async () => {
+  await updateDoc(doc(owner.db, 'listings', eventRef.id), {
+    startDate: startOfDay(-3), endDate: endOfDay(-2), registrationDeadline: null, updatedAt: serverTimestamp(),
+  });
+  await denied(teamApp(applicant));
+});
+const milestoneDoc = (id, extra) => setDoc(doc(applicant.db, 'listings', team2Ref.id, 'milestones', id), {
+  title: 'Live defect check', assigneeId: applicant.uid, assigneeName: 'QA Applicant', status: 'todo',
+  createdBy: applicant.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp(), completedAt: null, ...extra,
+});
+await check('D5/IT08 a milestone without a target date is refused', async () => {
+  await denied(milestoneDoc('no-date', {}));
+  await denied(milestoneDoc('null-date', { dueDate: null }));
+});
+await check('D5/IT08 a dated milestone is accepted, and its date cannot be removed', async () => {
+  await milestoneDoc('dated', { dueDate: endOfDay(5) });
+  await denied(updateDoc(doc(applicant.db, 'listings', team2Ref.id, 'milestones', 'dated'), { dueDate: null, updatedAt: serverTimestamp() }));
+});
+const updateDocWithLink = (id, extra) => setDoc(doc(applicant.db, 'listings', team2Ref.id, 'updates', id), {
+  authorId: applicant.uid, authorName: 'QA Applicant', text: 'Live defect check', createdAt: serverTimestamp(), ...extra,
+});
+await check('D6/IT10 a malformed update link is refused', () => denied(updateDocWithLink('bad-link', { link: 'not-a-url' })));
+await check('D6/IT10 valid and omitted update links are accepted', async () => {
+  await updateDocWithLink('good-link', { link: 'https://github.com/example/parking' });
+  await updateDocWithLink('no-link', {});
+});
+
+// ---------- Sprint 3 ----------
+console.log('\nUS17–US22 records, feedback, notifications, reports and the audit log');
+const team3Ref = doc(collection(owner.db, 'listings'));
+const team3 = (db) => doc(db, 'listings', team3Ref.id);
+const app3 = (db, uid) => doc(db, 'listings', team3Ref.id, 'applications', uid);
+const part = (db, uid) => doc(db, 'passports', uid, 'participation', team3Ref.id);
+const inbox = (db, uid, id) => doc(db, 'users', uid, 'notifications', id);
+const contributionRef = doc(collection(applicant.db, 'passports', applicant.uid, 'contributions'));
+const reportId = `listing_${team3Ref.id}_${outsider.uid}`;
+const auditRef = doc(collection(owner.db, 'auditLog'));
+created.docs.push(
+  `listings/${team3Ref.id}`, `passports/${owner.uid}`, `passports/${applicant.uid}`, `passports/${outsider.uid}`,
+  `users/${owner.uid}`, `users/${applicant.uid}`, `users/${outsider.uid}`, `reports/${reportId}`, `auditLog/${auditRef.id}`,
+);
+record();
+const team3Listing = {
+  ...projectListing, status: 'open', title: `[QA ${RUN}] Sprint 3 smoke test`,
+  roles: [{ ...role, openings: 1 }], openPlaces: 1, skills: ['kotlin'],
+};
+const participationRecord = (title, roleTitle, wasLead, status, endedAt = null) => ({
+  listingId: team3Ref.id, listingTitle: title, kind: 'project', role: roleTitle, wasLead, status,
+  startedAt: Timestamp.now(), endedAt, updatedAt: serverTimestamp(),
+});
+const notice = (from, fromName, type, extra = {}) => ({
+  type, listingId: team3Ref.id, listingTitle: team3Listing.title, fromUid: from, fromName, target: 'workspace',
+  targetId: team3Ref.id, note: '', read: false, createdAt: serverTimestamp(), ...extra,
+});
+
+await check('a third project forms a team: the lead and a joined member each have an active record', async () => {
+  const batch = writeBatch(owner.db);
+  batch.set(team3Ref, team3Listing);
+  batch.set(part(owner.db, owner.uid), participationRecord(team3Listing.title, 'Lead', true, 'active'));
+  await batch.commit();
+  for (const [s, name] of [[applicant, 'QA Applicant'], [outsider, 'QA Outsider']]) {
+    const b = writeBatch(s.db);
+    b.set(app3(s.db, s.uid), { ...application, applicantId: s.uid, applicantName: name, listingId: team3Ref.id, listingTitle: team3Listing.title });
+    b.set(doc(s.db, 'passports', s.uid, 'viewers', owner.uid), { listingId: team3Ref.id, grantedAt: serverTimestamp() });
+    await b.commit();
+  }
+  await updateDoc(app3(owner.db, applicant.uid), { status: 'offered', reviewed: true, offeredAt: serverTimestamp(), offerExpiresAt: endOfDay(3) });
+  await runTransaction(applicant.db, async (tx) => {
+    const l = (await tx.get(team3(applicant.db))).data();
+    tx.update(team3(applicant.db), {
+      roles: l.roles.map((r) => ({ ...r, openings: r.openings - 1 })), openPlaces: l.openPlaces - 1, teamSize: l.teamSize + 1,
+      [`members.${applicant.uid}`]: { name: 'QA Applicant', major: 'Computer Science', roleId: 'mob', roleTitle: 'Mobile developer', joinedAt: serverTimestamp() },
+      memberIds: arrayUnion(applicant.uid), updatedAt: serverTimestamp(),
+    });
+    tx.update(app3(applicant.db, applicant.uid), { status: 'accepted', respondedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    tx.set(part(applicant.db, applicant.uid), participationRecord(team3Listing.title, 'Mobile developer', false, 'active'));
+  });
+});
+await check('US17 a member records a self-reported contribution; an outsider cannot', async () => {
+  await setDoc(contributionRef, {
+    listingId: team3Ref.id, listingTitle: team3Listing.title, title: 'Built the sign-in screen', detail: '',
+    links: ['https://github.com/example/qa'], recordedBy: applicant.uid, recordedByName: 'QA Applicant',
+    confirmedBy: null, confirmedByName: null, confirmedAt: null, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  });
+  await denied(setDoc(doc(collection(outsider.db, 'passports', applicant.uid, 'contributions')), {
+    listingId: team3Ref.id, listingTitle: team3Listing.title, title: 'Not mine to record', detail: '', links: [],
+    recordedBy: outsider.uid, recordedByName: 'QA Outsider', confirmedBy: null, confirmedByName: null, confirmedAt: null,
+    createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  }));
+});
+await check('US17 the lead lists the team’s contributions and confirms one', async () => {
+  const found = await getDocs(query(collection(owner.db, 'passports', applicant.uid, 'contributions'), where('listingId', '==', team3Ref.id)));
+  if (found.size !== 1) throw new Error(`expected 1 contribution, got ${found.size}`);
+  await updateDoc(doc(owner.db, 'passports', applicant.uid, 'contributions', contributionRef.id), {
+    confirmedBy: owner.uid, confirmedByName: 'QA Owner', confirmedAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  });
+});
+await check('US18 feedback stays closed while the project runs', () => denied(setDoc(doc(applicant.db, 'passports', owner.uid, 'feedback', `${team3Ref.id}_${applicant.uid}`), {
+  listingId: team3Ref.id, listingTitle: team3Listing.title, reviewerUid: applicant.uid, reviewerName: 'QA Applicant',
+  contribution: 4, leadership: 4, comment: '', disputed: false, disputeReason: '', disputedAt: null, hidden: false,
+  moderationNote: '', createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+})));
+await check('US17 the lead completes the project and records everyone’s participation in one transaction', () => runTransaction(owner.db, async (tx) => {
+  // As RecordsRepository.completeProject: read every record first, keep when each person started.
+  const lead = (await tx.get(part(owner.db, owner.uid))).data();
+  const member = (await tx.get(part(owner.db, applicant.uid))).data();
+  tx.update(team3(owner.db), { completedAt: serverTimestamp(), completion: { summary: 'Smoke test complete', link: '' }, updatedAt: serverTimestamp() });
+  tx.set(part(owner.db, owner.uid), { ...participationRecord(team3Listing.title, 'Lead', true, 'completed', serverTimestamp()), startedAt: lead.startedAt });
+  tx.set(part(owner.db, applicant.uid), { ...participationRecord(team3Listing.title, 'Mobile developer', false, 'completed', serverTimestamp()), startedAt: member.startedAt });
+  tx.set(auditRef, { action: 'project_completed', actorUid: owner.uid, listingId: team3Ref.id, subjectUid: '', detail: 'Smoke test complete', at: serverTimestamp() });
+}));
+await check('US17 a completed project takes no new applications and the lead closes the one still waiting', async () => {
+  await updateDoc(app3(owner.db, outsider.uid), { status: 'closed', updatedAt: serverTimestamp() });
+  await denied(updateDoc(app3(outsider.db, outsider.uid), { status: 'submitted', reviewed: false, updatedAt: serverTimestamp() }));
+});
+await check('US18 teammates review each other after completion; leadership only for the lead; outsiders cannot', async () => {
+  const review = (s, subject, leadership) => setDoc(doc(s.db, 'passports', subject, 'feedback', `${team3Ref.id}_${s.uid}`), {
+    listingId: team3Ref.id, listingTitle: team3Listing.title, reviewerUid: s.uid, reviewerName: qaName(s),
+    contribution: 4, leadership, comment: 'Smoke test review', disputed: false, disputeReason: '', disputedAt: null,
+    hidden: false, moderationNote: '', createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  });
+  await review(applicant, owner.uid, 4);
+  await denied(review(owner, applicant.uid, 3));
+  await review(owner, applicant.uid, null);
+  await denied(review(outsider, owner.uid, null));
+});
+await check('US18 the person reviewed disputes a review, which stays on record', () =>
+  updateDoc(doc(owner.db, 'passports', owner.uid, 'feedback', `${team3Ref.id}_${applicant.uid}`), {
+    disputed: true, disputeReason: 'Smoke test dispute', disputedAt: serverTimestamp(),
+  }));
+await check('US19 teammates notify each other once per action; strangers cannot', async () => {
+  await setDoc(inbox(owner.db, applicant.uid, `done-${RUN}`), notice(owner.uid, 'QA Owner', 'project_completed'));
+  await denied(setDoc(inbox(owner.db, applicant.uid, `done-${RUN}`), notice(owner.uid, 'QA Owner', 'project_completed')));
+  await setDoc(inbox(owner.db, outsider.uid, `closed-${RUN}`), notice(owner.uid, 'QA Owner', 'recruitment_closed', { target: 'listing' }));
+  const stranger = await student('stranger');
+  await denied(setDoc(inbox(stranger.db, applicant.uid, `spam-${RUN}`), notice(stranger.uid, 'QA Stranger', 'listing_changed')));
+  await terminate(stranger.db);
+  await deleteApp(stranger.app);
+});
+await check('US19 only the recipient reads and marks their notifications', async () => {
+  await updateDoc(inbox(applicant.db, applicant.uid, `done-${RUN}`), { read: true });
+  await denied(getDoc(inbox(outsider.db, applicant.uid, `done-${RUN}`)));
+  await getDocs(query(collection(applicant.db, 'users', applicant.uid, 'notifications'), orderBy('createdAt', 'desc'), limit(20)));
+});
+await check('US20 a student reports a listing once and can check whether it arrived', async () => {
+  await getDoc(doc(outsider.db, 'reports', reportId));
+  await setDoc(doc(outsider.db, 'reports', reportId), {
+    reporterUid: outsider.uid, reporterName: 'QA Outsider', targetType: 'listing', targetKey: team3Ref.id,
+    targetPath: `listings/${team3Ref.id}`, targetTitle: team3Listing.title, targetOwnerUid: owner.uid, listingId: team3Ref.id,
+    reason: 'other', details: 'Smoke test report', status: 'open', resolution: '', resolvedBy: null, resolvedAt: null,
+    createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  });
+  await denied(getDoc(doc(owner.db, 'reports', reportId)));
+  await denied(updateDoc(doc(outsider.db, 'reports', reportId), { status: 'resolved', resolution: 'Self-resolved', resolvedBy: outsider.uid, resolvedAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+});
+await check('US20 nobody can make themselves an administrator or hide a listing', async () => {
+  await denied(setDoc(doc(outsider.db, 'admins', outsider.uid), { name: 'QA Outsider' }));
+  await denied(updateDoc(team3(outsider.db), { hidden: true, moderationNote: 'Smoke', updatedAt: serverTimestamp() }));
+});
+await check('US22 the audit log is append-only and closed to students', async () => {
+  await denied(getDoc(doc(owner.db, 'auditLog', auditRef.id)));
+  await denied(setDoc(doc(collection(owner.db, 'auditLog')), { action: 'project_completed', actorUid: applicant.uid, listingId: team3Ref.id, subjectUid: '', detail: '', at: serverTimestamp() }));
 });
 
 for (const s of [owner, applicant, outsider]) {

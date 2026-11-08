@@ -16,7 +16,7 @@ import java.net.UnknownHostException
 import java.time.LocalDate
 
 /**
- * The optional LLM service (charter §6.4): the app sends a project description straight to
+ * The optional LLM service (charter, Technical Environment): the app sends a project description straight to
  * OpenAI and shows the roles it suggests, which the owner confirms before anything is used.
  *
  * The key comes from the project's `.env` at build time, so it is inside the APK. Give it a

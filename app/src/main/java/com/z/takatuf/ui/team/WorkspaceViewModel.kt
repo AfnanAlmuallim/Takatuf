@@ -5,20 +5,27 @@ import androidx.lifecycle.viewModelScope
 import com.z.takatuf.R
 import com.z.takatuf.data.AppError
 import com.z.takatuf.data.ApplicationRepository
+import com.z.takatuf.data.DraftStore
 import com.z.takatuf.data.ListingRepository
+import com.z.takatuf.data.NotificationRepository
+import com.z.takatuf.data.RecordsRepository
 import com.z.takatuf.data.Session
 import com.z.takatuf.data.TeamRepository
 import com.z.takatuf.data.WorkspaceRepository
 import com.z.takatuf.data.attempt
 import com.z.takatuf.data.model.Application
 import com.z.takatuf.data.model.ApplicationStatus
+import com.z.takatuf.data.model.Contribution
 import com.z.takatuf.data.model.Deliverable
 import com.z.takatuf.data.model.Listing
 import com.z.takatuf.data.model.Milestone
 import com.z.takatuf.data.model.MilestoneStatus
+import com.z.takatuf.data.model.NotificationTarget
+import com.z.takatuf.data.model.NotificationType
 import com.z.takatuf.data.model.TeamUpdate
 import com.z.takatuf.data.toAppError
 import com.z.takatuf.domain.Dates
+import com.z.takatuf.domain.Validators
 import com.z.takatuf.ui.common.UserMessage
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -28,6 +35,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -37,6 +46,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
+import java.util.UUID
 
 /** Someone on the team, lead included, as the workspace shows them. */
 data class TeamPerson(
@@ -57,6 +67,8 @@ data class WorkspaceUiState(
     val updates: List<TeamUpdate> = emptyList(),
     val deliverables: List<Deliverable> = emptyList(),
     val responsibilities: Map<String, String> = emptyMap(),
+    /** What each person contributed to this project (US17). */
+    val contributions: List<Contribution> = emptyList(),
     /** Earlier applicants the lead can ask to reconfirm when reopening a place (US15). */
     val pastApplicants: List<Application> = emptyList(),
     val activeApplicants: Int = 0,
@@ -69,6 +81,7 @@ data class WorkspaceUiState(
 ) {
     val isLead: Boolean get() = listing?.isLead(myUid) == true
     val onTeam: Boolean get() = listing?.isOnTeam(myUid) == true
+    val isCompleted: Boolean get() = listing?.isCompleted == true
 
     val people: List<TeamPerson>
         get() {
@@ -77,6 +90,12 @@ data class WorkspaceUiState(
             return listOf(lead) + l.members.sortedBy { it.joinedAt ?: Instant.MAX }.map {
                 TeamPerson(it.uid, it.name, it.major, it.roleTitle, isLead = false, joinedAt = it.joinedAt)
             }
+        }
+
+    /** People who left; the Record tab keeps their work, but they take no new tasks (US17). */
+    val formerPeople: List<TeamPerson>
+        get() = listing?.departed.orEmpty().map {
+            TeamPerson(it.uid, it.name, it.major, it.roleTitle, isLead = false, joinedAt = it.joinedAt)
         }
 
     /** Outstanding first by due date (undated last), then finished, most recent first (US14). */
@@ -118,6 +137,9 @@ class WorkspaceViewModel(
     private val applications: ApplicationRepository,
     private val teams: TeamRepository,
     private val workspace: WorkspaceRepository,
+    private val records: RecordsRepository,
+    private val notifications: NotificationRepository,
+    private val drafts: DraftStore,
 ) : ViewModel() {
 
     private val uid = session.uid.orEmpty()
@@ -155,6 +177,12 @@ class WorkspaceViewModel(
         }
         .onStart { emit(Space()) }
 
+    private val contributions: Flow<List<Contribution>> = head
+        .map { h -> (h as? Head.Loaded)?.listing?.takeIf { it.isOnTeam(uid) }?.let { l -> listOf(l.ownerId) + l.memberIds + l.departed.map { it.uid } }.orEmpty() }
+        .distinctUntilChanged()
+        .flatMapLatest { people -> records.observeTeamContributions(listingId, people) }
+        .onStart { emit(emptyList()) }
+
     /** Applications are only readable by the lead. */
     private val apps: Flow<List<Application>> = head
         .map { (it as? Head.Loaded)?.listing?.isLead(uid) == true }
@@ -164,7 +192,7 @@ class WorkspaceViewModel(
         }
         .onStart { emit(emptyList()) }
 
-    val state: StateFlow<WorkspaceUiState> = combine(head, space, apps, extras) { h, s, a, e ->
+    val state: StateFlow<WorkspaceUiState> = combine(head, space, contributions, apps, extras) { h, s, c, a, e ->
         val now = Instant.now()
         WorkspaceUiState(
             loading = h is Head.Loading,
@@ -175,6 +203,7 @@ class WorkspaceViewModel(
             updates = s.updates,
             deliverables = s.deliverables,
             responsibilities = s.responsibilities,
+            contributions = c,
             pastApplicants = a.filter {
                 it.status in reconsiderable || (it.status == ApplicationStatus.Offered && it.offerExpired(now))
             },
@@ -186,27 +215,62 @@ class WorkspaceViewModel(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkspaceUiState())
 
+    init {
+        // Teams formed before participation records existed get one when a member opens them.
+        viewModelScope.launch {
+            val listing = head.filter { it is Head.Loaded }.first().let { (it as Head.Loaded).listing }
+            if (listing != null && listing.isOnTeam(uid) && !listing.isCompleted) attempt { records.ensureActive(uid, listing) }
+        }
+    }
+
     fun retry() = retry.update { it + 1 }
 
     fun messageShown() = extras.update { it.copy(message = null) }
 
+    private fun listing(): Listing? = state.value.listing
+    private fun me() = session.profile
+
+    /** Tells [recipients] about something just done here; never holds up the action itself. */
+    private fun notify(actionId: String, recipients: Collection<String>, type: NotificationType, target: NotificationTarget = NotificationTarget.Workspace, note: String = "") {
+        val listing = listing() ?: return
+        val me = me() ?: return
+        viewModelScope.launch {
+            notifications.send(actionId, recipients, type, listing.id, listing.title, me.uid, me.displayName, target, listing.id, note)
+        }
+    }
+
     // Plan (US14)
 
-    fun saveMilestone(existing: Milestone?, title: String, assignee: TeamPerson, due: LocalDate?, status: MilestoneStatus) =
-        run(if (existing == null) R.string.msg_milestone_added else R.string.msg_milestone_saved) {
-            val dueAt = due?.let(Dates::endOf)
+    fun saveMilestone(existing: Milestone?, title: String, assignee: TeamPerson, due: LocalDate, status: MilestoneStatus) {
+        val actionId = UUID.randomUUID().toString()
+        val id = existing?.id ?: actionId
+        run(if (existing == null) R.string.msg_milestone_added else R.string.msg_milestone_saved, after = {
+            // The person it's assigned to hears about it, unless they assigned it themselves.
+            if (assignee.uid != uid && (existing == null || existing.assigneeId != assignee.uid)) {
+                notify(actionId, listOf(assignee.uid), NotificationType.MilestoneAssigned, note = title)
+            }
+        }) {
+            val dueAt = Dates.endOf(due)
             if (existing == null) {
-                workspace.addMilestone(listingId, uid, title, assignee.uid, assignee.name, dueAt)
+                workspace.addMilestone(id, listingId, uid, title, assignee.uid, assignee.name, dueAt)
             } else {
                 workspace.editMilestone(listingId, existing.id, title, assignee.uid, assignee.name, dueAt)
                 if (existing.status != status) workspace.setMilestoneStatus(listingId, existing.id, status)
             }
         }
+    }
 
-    fun setStatus(milestone: Milestone, status: MilestoneStatus) =
-        run(if (status == MilestoneStatus.Done) R.string.msg_milestone_done else null) {
+    fun setStatus(milestone: Milestone, status: MilestoneStatus) {
+        val lead = listing()?.ownerId.orEmpty()
+        val actionId = UUID.randomUUID().toString()
+        run(if (status == MilestoneStatus.Done) R.string.msg_milestone_done else null, after = {
+            if (status == MilestoneStatus.Done && lead != uid) {
+                notify(actionId, listOf(lead), NotificationType.MilestoneCompleted, note = milestone.title)
+            }
+        }) {
             workspace.setMilestoneStatus(listingId, milestone.id, status)
         }
+    }
 
     fun deleteMilestone(milestone: Milestone) = run(R.string.msg_milestone_deleted) {
         workspace.deleteMilestone(listingId, milestone.id)
@@ -214,14 +278,18 @@ class WorkspaceViewModel(
 
     // Updates and links (US13)
 
-    fun postUpdate(text: String, link: String) = run(R.string.msg_update_posted) {
-        workspace.postUpdate(listingId, uid, myName(), text, normaliseLink(link))
+    fun postUpdate(text: String, link: String) {
+        val id = UUID.randomUUID().toString()
+        run(R.string.msg_update_posted, after = { drafts.clear(DraftStore.update(listingId)) }) {
+            workspace.postUpdate(id, listingId, uid, myName(), text, normaliseLink(link))
+        }
     }
 
     fun deleteUpdate(update: TeamUpdate) = run(R.string.msg_update_deleted) { workspace.deleteUpdate(listingId, update.id) }
 
-    fun addLink(label: String, url: String) = run(R.string.msg_link_added) {
-        workspace.addDeliverable(listingId, uid, myName(), label, normaliseLink(url))
+    fun addLink(label: String, url: String) {
+        val id = UUID.randomUUID().toString()
+        run(R.string.msg_link_added) { workspace.addDeliverable(id, listingId, uid, myName(), label, normaliseLink(url)) }
     }
 
     fun deleteLink(deliverable: Deliverable) = run(R.string.msg_link_removed) {
@@ -232,43 +300,104 @@ class WorkspaceViewModel(
         workspace.setResponsibility(listingId, person.uid, text, uid)
     }
 
+    // Records (US17)
+
+    /** Records a contribution for [person]: the student's own claim, or the lead's confirmed record. */
+    fun addContribution(person: TeamPerson, title: String, detail: String, links: List<String>) {
+        val listing = listing() ?: return
+        val me = me() ?: return
+        val id = UUID.randomUUID().toString()
+        run(R.string.msg_contribution_saved, after = { drafts.clear(DraftStore.contribution(listing.id, person.uid)) }) {
+            records.addContribution(id, person.uid, listing.id, listing.title, title, detail, links, me)
+        }
+    }
+
+    fun editContribution(contribution: Contribution, title: String, detail: String, links: List<String>) =
+        run(R.string.msg_contribution_saved) { records.editContribution(contribution, title, detail, links) }
+
+    fun deleteContribution(contribution: Contribution) =
+        run(R.string.msg_contribution_deleted) { records.deleteContribution(contribution) }
+
+    fun setConfirmed(contribution: Contribution, confirmed: Boolean) {
+        val me = me() ?: return
+        run(if (confirmed) R.string.msg_contribution_confirmed else R.string.msg_contribution_unconfirmed) {
+            records.setConfirmed(contribution, me, confirmed)
+        }
+    }
+
+    /** The lead completes the project; everyone's participation is recorded and feedback opens. */
+    fun completeProject(summary: String, link: String) {
+        val listing = listing() ?: return
+        val me = me() ?: return
+        val actionId = UUID.randomUUID().toString()
+        var closed = emptyList<String>()
+        run(R.string.msg_project_completed, after = {
+            notify(actionId, listing.memberIds, NotificationType.ProjectCompleted, note = summary)
+            notify("${actionId}_closed", closed, NotificationType.RecruitmentClosed, NotificationTarget.Listing)
+        }) {
+            records.completeProject(listing.id, me, summary, link)
+            // Best effort: completion stands even if closing the leftover applications fails.
+            closed = attempt { applications.closeOpen(listing.id) }.getOrDefault(emptyList())
+        }
+    }
+
     // People (US15, US16)
 
     fun reopen(roleId: String, places: Int, reconfirm: Collection<String>) {
-        val listing = state.value.listing ?: return
-        run(R.string.msg_place_reopened) { teams.reopenPlaces(listing, roleId, places, reconfirm) }
+        val listing = listing() ?: return
+        val actionId = UUID.randomUUID().toString()
+        run(R.string.msg_place_reopened, after = {
+            notify(actionId, reconfirm, NotificationType.ReconfirmRequested, NotificationTarget.Listing)
+        }) { teams.reopenPlaces(listing, roleId, places, reconfirm, uid) }
     }
 
     fun nominateLead(person: TeamPerson) {
-        val member = state.value.listing?.members?.firstOrNull { it.uid == person.uid } ?: return
-        run(R.string.msg_lead_nominated, listOf(person.name)) { teams.nominateLead(listingId, member) }
+        val member = listing()?.members?.firstOrNull { it.uid == person.uid } ?: return
+        val actionId = UUID.randomUUID().toString()
+        run(R.string.msg_lead_nominated, listOf(person.name), after = {
+            notify(actionId, listOf(person.uid), NotificationType.LeadRequested, NotificationTarget.Workspace)
+        }) { teams.nominateLead(listingId, member, uid) }
     }
 
-    fun cancelNomination() = run(R.string.msg_nomination_cancelled) { teams.clearNomination(listingId) }
+    fun cancelNomination() = run(R.string.msg_nomination_cancelled) { teams.clearNomination(listingId, uid, declinedByNominee = false) }
 
     fun acceptLead() {
-        val me = session.profile ?: return
-        run(R.string.msg_lead_accepted, listOf(state.value.listing?.title.orEmpty())) { teams.acceptLead(listingId, me) }
+        val me = me() ?: return
+        val previous = listing()?.ownerId.orEmpty()
+        val actionId = UUID.randomUUID().toString()
+        run(R.string.msg_lead_accepted, listOf(listing()?.title.orEmpty()), after = {
+            notify(actionId, listOf(previous), NotificationType.LeadAccepted)
+        }) { teams.acceptLead(listingId, me) }
     }
 
-    fun declineLead() = run(R.string.msg_lead_declined, listOf(state.value.listing?.title.orEmpty())) {
-        teams.clearNomination(listingId)
+    fun declineLead() {
+        val owner = listing()?.ownerId.orEmpty()
+        val actionId = UUID.randomUUID().toString()
+        run(R.string.msg_lead_declined, listOf(listing()?.title.orEmpty()), after = {
+            notify(actionId, listOf(owner), NotificationType.LeadDeclined)
+        }) { teams.clearNomination(listingId, uid, declinedByNominee = true) }
     }
 
-    fun removeMember(person: TeamPerson) = run(R.string.msg_member_removed, listOf(person.name)) {
-        teams.removeMember(listingId, person.uid)
+    fun removeMember(person: TeamPerson) {
+        val actionId = UUID.randomUUID().toString()
+        run(R.string.msg_member_removed, listOf(person.name), after = {
+            notify(actionId, listOf(person.uid), NotificationType.MemberRemoved, NotificationTarget.Passport)
+        }) { teams.removeMember(listingId, person.uid, uid) }
     }
 
     fun leave() {
         if (extras.value.busy) return
+        val team = listing()?.let { listOf(it.ownerId) + it.memberIds }.orEmpty() - uid
+        val actionId = UUID.randomUUID().toString()
         extras.update { it.copy(busy = true) }
         viewModelScope.launch {
             val result = attempt { teams.leave(listingId, uid) }
+            if (result.isSuccess) notify(actionId, team, NotificationType.MemberLeft)
             extras.update {
                 it.copy(
                     busy = false,
                     left = result.isSuccess,
-                    message = result.exceptionOrNull()?.let { e -> UserMessage(e.toAppError().message) },
+                    message = result.exceptionOrNull()?.let { e -> UserMessage(e.toAppError().message, retry = ::leave) },
                 )
             }
         }
@@ -277,18 +406,23 @@ class WorkspaceViewModel(
     private fun myName(): String = session.profile?.displayName?.takeIf { it.isNotBlank() }
         ?: state.value.people.firstOrNull { it.uid == uid }?.name.orEmpty()
 
-    private fun run(success: Int?, args: List<Any> = emptyList(), block: suspend () -> Unit) {
+    /**
+     * Runs one action. On failure the message offers a retry that repeats exactly the same
+     * action (same ids, same notifications), so it can't create a duplicate (US21).
+     */
+    private fun run(success: Int?, args: List<Any> = emptyList(), after: () -> Unit = {}, block: suspend () -> Unit) {
         if (extras.value.busy) return
         extras.update { it.copy(busy = true) }
         viewModelScope.launch {
             val result = attempt { block() }
+            if (result.isSuccess) after()
             extras.update {
                 it.copy(
                     busy = false,
                     done = if (result.isSuccess) System.nanoTime() else it.done,
                     message = result.fold(
                         onSuccess = { success?.let { s -> UserMessage(s, args) } },
-                        onFailure = { e -> UserMessage(e.toAppError().message) },
+                        onFailure = { e -> UserMessage(e.toAppError().message, retry = { run(success, args, after, block) }) },
                     ),
                 )
             }
@@ -299,13 +433,8 @@ class WorkspaceViewModel(
         /** Who can be asked to reconfirm: anyone who applied but wasn't taken on. */
         val reconsiderable = setOf(ApplicationStatus.Submitted, ApplicationStatus.Shortlisted, ApplicationStatus.Declined)
 
-        fun normaliseLink(link: String): String {
-            val trimmed = link.trim()
-            return when {
-                trimmed.isEmpty() -> ""
-                trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
-                else -> "https://$trimmed"
-            }
-        }
+        /** Empty stays empty; anything else goes out in the form the backend checks for. */
+        fun normaliseLink(link: String): String =
+            if (link.isBlank()) "" else Validators.webLink(link) ?: link.trim()
     }
 }

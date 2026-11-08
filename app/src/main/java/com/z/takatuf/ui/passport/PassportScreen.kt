@@ -22,6 +22,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Flag
+import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.AlertDialog
@@ -32,7 +34,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -41,7 +42,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberModalBottomSheetState
+import com.z.takatuf.ui.common.ActionSheet
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -61,8 +62,16 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.toRoute
+import android.app.Activity
+import androidx.compose.ui.platform.LocalContext
 import com.z.takatuf.R
+import com.z.takatuf.TakatufApplication
+import com.z.takatuf.data.DraftStore
+import com.z.takatuf.data.model.Contribution
 import com.z.takatuf.data.model.EvidenceLink
+import com.z.takatuf.data.model.Feedback
+import com.z.takatuf.data.model.Participation
+import com.z.takatuf.data.model.ReportTarget
 import com.z.takatuf.data.model.Experience
 import com.z.takatuf.data.model.Passport
 import com.z.takatuf.data.model.PassportAccess
@@ -73,21 +82,46 @@ import com.z.takatuf.ui.common.ErrorState
 import com.z.takatuf.ui.common.FullScreenLoading
 import com.z.takatuf.ui.common.MessageEffect
 import com.z.takatuf.ui.common.PrimaryButton
+import com.z.takatuf.ui.common.rememberDrafts
+import com.z.takatuf.ui.moderation.ReportLauncher
+import com.z.takatuf.ui.moderation.ReportSubject
 import com.z.takatuf.ui.navigation.PersonRoute
+import com.z.takatuf.ui.notifications.InboxButton
+import com.z.takatuf.ui.records.ContributionSheet
+import com.z.takatuf.ui.records.DisputeDialog
+import com.z.takatuf.ui.records.RecordsSection
 import java.util.UUID
 
 private enum class Sheet { Basics, Visibility, Skills, Interests, Availability, Experience, Links }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PassportScreen() {
-    val viewModel = appViewModel { c, _ -> MyPassportViewModel(c.session, c.profiles, c.authRepository) }
+fun PassportScreen(
+    onInbox: () -> Unit = {},
+    onOpenModeration: () -> Unit = {},
+    onReviewTeammates: (listingId: String) -> Unit = {},
+) {
+    val viewModel = appViewModel { c, _ -> MyPassportViewModel(c.session, c.profiles, c.authRepository, c.records, c.isAdmin) }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     MessageEffect(state.message, snackbar, viewModel::messageShown)
     var sheet by rememberSaveable { mutableStateOf<Sheet?>(null) }
     var confirmSignOut by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(state.savedAt) { if (state.savedAt != 0L && sheet != Sheet.Visibility) sheet = null }
+    val context = LocalContext.current
+    var addingFor by remember { mutableStateOf<Participation?>(null) }
+    var editingContribution by remember { mutableStateOf<Contribution?>(null) }
+    var disputing by remember { mutableStateOf<Feedback?>(null) }
+    val drafts = rememberDrafts()
+    LaunchedEffect(state.savedAt) {
+        if (state.savedAt != 0L) {
+            if (sheet != Sheet.Visibility) sheet = null
+            // A contribution that went through no longer needs its draft.
+            addingFor?.let { drafts.clear(DraftStore.contribution(it.listingId, state.profile?.uid.orEmpty())) }
+            addingFor = null
+            editingContribution = null
+            disputing = null
+        }
+    }
 
     val profile = state.profile
     val passport = state.passport
@@ -115,12 +149,20 @@ fun PassportScreen() {
                         .weight(1f)
                         .semantics { heading() },
                 )
+                InboxButton(onClick = onInbox)
                 var menu by remember { mutableStateOf(false) }
                 Box {
                     IconButton(onClick = { menu = true }) {
                         Icon(Icons.Rounded.MoreVert, contentDescription = stringResource(R.string.action_more))
                     }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        if (state.isAdmin) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.moderation_title)) },
+                                leadingIcon = { Icon(Icons.Rounded.Shield, contentDescription = null) },
+                                onClick = { menu = false; onOpenModeration() },
+                            )
+                        }
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.action_change_password)) },
                             leadingIcon = { Icon(Icons.Rounded.Key, contentDescription = null) },
@@ -155,6 +197,20 @@ fun PassportScreen() {
                         PassportSection.Links -> Sheet.Links
                     }
                 },
+            )
+            Spacer(Modifier.height(24.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Spacer(Modifier.height(16.dp))
+            RecordsSection(
+                name = profile.displayName,
+                records = state.records,
+                contributions = state.contributions,
+                feedback = state.feedback,
+                isMine = true,
+                onAddContribution = { addingFor = it },
+                onEditContribution = { c -> if (c.confirmedBy == null) editingContribution = c },
+                onReview = { onReviewTeammates(it.listingId) },
+                onDispute = { disputing = it },
             )
             Spacer(Modifier.height(24.dp))
             state.email?.let {
@@ -205,12 +261,46 @@ fun PassportScreen() {
             null -> Unit
         }
     }
+    addingFor?.let { record ->
+        ContributionSheet(
+            title = stringResource(R.string.contribution_add_title),
+            subtitle = record.listingTitle,
+            draftKey = DraftStore.contribution(record.listingId, state.profile?.uid.orEmpty()),
+            initial = null,
+            saving = state.saving,
+            note = stringResource(R.string.contribution_note_self),
+            onSave = { title, detail, links -> viewModel.addContribution(record, title, detail, links) },
+            onDelete = null,
+            onDismiss = { addingFor = null },
+        )
+    }
+    editingContribution?.let { c ->
+        ContributionSheet(
+            title = stringResource(R.string.contribution_edit_title),
+            subtitle = c.listingTitle,
+            draftKey = DraftStore.contribution(c.listingId, c.ownerUid),
+            initial = c,
+            saving = state.saving,
+            note = stringResource(R.string.contribution_note_edit),
+            onSave = { title, detail, links -> viewModel.editContribution(c, title, detail, links) },
+            onDelete = { viewModel.deleteContribution(c) },
+            onDismiss = { editingContribution = null },
+        )
+    }
+    disputing?.let { f ->
+        DisputeDialog(reviewer = f.reviewerName, onDispute = { reason -> viewModel.dispute(f, reason) }, onDismiss = { disputing = null })
+    }
     if (confirmSignOut) {
         AlertDialog(
             onDismissRequest = { confirmSignOut = false },
             title = { Text(stringResource(R.string.sign_out_title)) },
             text = { Text(stringResource(R.string.sign_out_body)) },
-            confirmButton = { TextButton(onClick = { confirmSignOut = false; viewModel.signOut() }) { Text(stringResource(R.string.action_sign_out)) } },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmSignOut = false
+                    (context.applicationContext as TakatufApplication).signOutAndRestart(context as Activity)
+                }) { Text(stringResource(R.string.action_sign_out)) }
+            },
             dismissButton = { TextButton(onClick = { confirmSignOut = false }) { Text(stringResource(R.string.action_cancel)) } },
         )
     }
@@ -263,7 +353,7 @@ private fun NextStep(passport: Passport, onAct: (Sheet) -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun EditSheet(title: String, onDismiss: () -> Unit, content: @Composable () -> Unit) {
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    ActionSheet(onDismiss) {
         Column(
             Modifier
                 .imePadding()
@@ -413,15 +503,37 @@ private fun LinksSheet(items: List<EvidenceLink>, saving: Boolean, onSave: (List
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PersonScreen(onBack: () -> Unit) {
-    val viewModel = appViewModel { c, handle: SavedStateHandle -> PersonViewModel(handle.toRoute<PersonRoute>().uid, c.profiles) }
+    val viewModel = appViewModel { c, handle: SavedStateHandle ->
+        PersonViewModel(handle.toRoute<PersonRoute>().uid, c.profiles, c.records)
+    }
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val snackbar = remember { SnackbarHostState() }
+    var reporting by rememberSaveable { mutableStateOf(false) }
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.passport_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.action_back))
+                    }
+                },
+                actions = {
+                    if (state.profile != null) {
+                        var menu by remember { mutableStateOf(false) }
+                        Box {
+                            IconButton(onClick = { menu = true }) {
+                                Icon(Icons.Rounded.MoreVert, contentDescription = stringResource(R.string.action_more))
+                            }
+                            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.action_report_conduct)) },
+                                    leadingIcon = { Icon(Icons.Rounded.Flag, contentDescription = null) },
+                                    onClick = { menu = false; reporting = true },
+                                )
+                            }
+                        }
                     }
                 },
             )
@@ -453,8 +565,28 @@ fun PersonScreen(onBack: () -> Unit) {
                     PassportAccess.Hidden -> HiddenPassport(profile.displayName, profile.visibility)
                     else -> Text(stringResource(R.string.passport_missing, profile.displayName), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                if (state.passport is PassportAccess.Visible) {
+                    Spacer(Modifier.height(24.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Spacer(Modifier.height(16.dp))
+                    RecordsSection(
+                        name = profile.displayName,
+                        records = state.records,
+                        contributions = state.contributions,
+                        feedback = state.feedback,
+                        isMine = false,
+                    )
+                }
                 Spacer(Modifier.height(24.dp))
             }
         }
+    }
+    val profile = state.profile
+    if (reporting && profile != null) {
+        ReportLauncher(
+            ReportSubject(ReportTarget.User, profile.uid, "profiles/${profile.uid}", profile.displayName, profile.uid, ""),
+            snackbar,
+            onDismiss = { reporting = false },
+        )
     }
 }

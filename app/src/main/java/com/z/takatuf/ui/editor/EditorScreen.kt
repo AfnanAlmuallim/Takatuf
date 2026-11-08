@@ -63,6 +63,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.toRoute
 import com.z.takatuf.R
+import com.z.takatuf.ui.common.DraftRestoredNote
 import com.z.takatuf.data.Catalog
 import com.z.takatuf.data.RoleTemplates
 import com.z.takatuf.data.model.EligibleLevel
@@ -109,6 +110,9 @@ fun EditorScreen(
             listings = c.listings,
             ai = c.ai,
             teamTitleFor = { title -> resources.getString(R.string.team_default_title, title) },
+            applications = c.applications,
+            notifications = c.notifications,
+            drafts = c.drafts,
         )
     }
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -158,6 +162,10 @@ fun EditorScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp),
         ) {
+            if (state.draftRestored && !state.isEditing) {
+                Spacer(Modifier.height(8.dp))
+                DraftRestoredNote(onDiscard = viewModel::discardDraft)
+            }
             when (state.kind) {
                 ListingKind.Event -> EventForm(state, viewModel)
                 else -> RecruitmentForm(state, viewModel, onShareEventInstead)
@@ -171,7 +179,9 @@ fun EditorScreen(
             onDismissRequest = { confirmDiscard = false },
             title = { Text(stringResource(R.string.discard_title)) },
             text = { Text(stringResource(R.string.discard_body)) },
-            confirmButton = { TextButton(onClick = { confirmDiscard = false; onClose() }) { Text(stringResource(R.string.action_discard)) } },
+            confirmButton = {
+                TextButton(onClick = { confirmDiscard = false; viewModel.discardDraft(); onClose() }) { Text(stringResource(R.string.action_discard)) }
+            },
             dismissButton = { TextButton(onClick = { confirmDiscard = false }) { Text(stringResource(R.string.action_keep_editing)) } },
         )
     }
@@ -205,6 +215,7 @@ private fun RecruitmentForm(state: EditorUiState, vm: EditorViewModel, onShareEv
     var newRole by rememberSaveable { mutableStateOf(false) }
     val isTeam = state.kind == ListingKind.Team
     val eventMax = state.event?.event?.teamSizeMax
+    val eventMin = state.event?.event?.teamSizeMin
 
     Spacer(Modifier.height(8.dp))
     if (isTeam) {
@@ -317,6 +328,8 @@ private fun RecruitmentForm(state: EditorUiState, vm: EditorViewModel, onShareEv
             supporting = when {
                 Field.TeamSize in state.errors && state.teamSize < state.minTeamSize ->
                     pluralStringResource(R.plurals.editor_team_size_members, state.memberCount, state.memberCount)
+                Field.TeamSize in state.errors && eventMin != null && state.teamSize + state.openPlaces < eventMin ->
+                    pluralStringResource(R.plurals.editor_team_size_under, eventMin, eventMin, state.teamSize + state.openPlaces)
                 Field.TeamSize in state.errors && eventMax != null ->
                     pluralStringResource(R.plurals.editor_team_size_over, eventMax, eventMax, state.teamSize + state.openPlaces)
                 else -> pluralStringResource(R.plurals.editor_team_summary, state.openPlaces, state.teamSize + state.openPlaces, state.openPlaces)

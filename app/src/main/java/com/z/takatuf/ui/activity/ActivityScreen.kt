@@ -54,6 +54,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.z.takatuf.R
+import com.z.takatuf.ui.notifications.TabTitle
 import com.z.takatuf.data.model.Application
 import com.z.takatuf.data.model.ApplicationStatus
 import com.z.takatuf.data.model.Listing
@@ -86,8 +87,9 @@ fun ActivityScreen(
     onDiscover: () -> Unit,
     onPost: (ListingKind) -> Unit,
     onOpenTeam: (String) -> Unit,
+    onInbox: () -> Unit,
 ) {
-    val viewModel = appViewModel { c, _ -> ActivityViewModel(c.session, c.listings, c.applications) }
+    val viewModel = appViewModel { c, _ -> ActivityViewModel(c.session, c.listings, c.applications, c.notifications) }
     val state by viewModel.state.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableIntStateOf(-1) }
     var showPost by rememberSaveable { mutableStateOf(false) }
@@ -117,14 +119,7 @@ fun ActivityScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            Text(
-                text = stringResource(R.string.tab_activity),
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier
-                    .padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 8.dp)
-                    .semantics { heading() },
-            )
+            TabTitle(stringResource(R.string.tab_activity), onInbox)
             PrimaryTabRow(selectedTabIndex = selected, containerColor = MaterialTheme.colorScheme.surface) {
                 Tab(
                     selected = selected == 0,

@@ -9,23 +9,32 @@
 .cxx/
 local.properties
 .DS_Store
+.claude/
 
-# Firebase tooling and local test-account state
+# Firebase tooling, backups and local test-account state
 firebase/node_modules/
 firebase/.firebase/
 *-debug.log
 firebase/tests/.live-smoke-created.json
 firebase/tests/.*private*.json
+firebase/backups/
 
-# Local Sprint 2 report/evidence tooling (kept outside the source update)
+# Assessment reports, evidence and one-off live administration tools
 Sprint02_Deliverables/
 Sprint02_Evidence/
+Sprint03_Deliverables/
+Sprint03_Evidence/
+Documentation/
 firebase/tests/sprint02-*.mjs
+firebase/tests/sprint03/*
+!firebase/tests/sprint03/rules-extra.test.mjs
 /Sprint Review and Retrospective.docx
 /Takatuf_Project_Charter.md
+/Takatuf_Defect_Handover.md
+/Takatuf_Sprint_1_and_2_Defects.md
 /logo.png
 
-# Local AI credentials; only the placeholder template belongs in Git
+# Credentials; only the placeholder template belongs in Git
 .env
 .env.*
 !.env.example
@@ -33,3 +42,5 @@ firebase/tests/sprint02-*.mjs
 *.keystore
 *.apk
 *.aab
+*service-account*.json
+*firebase-adminsdk*.json

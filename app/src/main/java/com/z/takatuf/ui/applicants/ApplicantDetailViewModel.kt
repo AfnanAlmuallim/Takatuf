@@ -6,11 +6,14 @@ import com.z.takatuf.R
 import com.z.takatuf.data.AppError
 import com.z.takatuf.data.ApplicationRepository
 import com.z.takatuf.data.ListingRepository
+import com.z.takatuf.data.NotificationRepository
 import com.z.takatuf.data.ProfileRepository
 import com.z.takatuf.data.Session
 import com.z.takatuf.data.attempt
 import com.z.takatuf.data.model.Application
 import com.z.takatuf.data.model.Listing
+import com.z.takatuf.data.model.NotificationTarget
+import com.z.takatuf.data.model.NotificationType
 import com.z.takatuf.data.model.PassportAccess
 import com.z.takatuf.data.model.Profile
 import com.z.takatuf.data.toAppError
@@ -29,6 +32,7 @@ import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 data class ApplicantDetailUiState(
     val loading: Boolean = true,
@@ -49,10 +53,11 @@ private data class Extras(val busy: Boolean = false, val done: Long = 0L, val me
 class ApplicantDetailViewModel(
     private val listingId: String,
     private val applicantId: String,
-    session: Session,
+    private val session: Session,
     listings: ListingRepository,
     private val applications: ApplicationRepository,
     profiles: ProfileRepository,
+    private val notifications: NotificationRepository,
 ) : ViewModel() {
 
     private val extras = MutableStateFlow(Extras())
@@ -60,7 +65,7 @@ class ApplicantDetailViewModel(
     private val uid = session.uid.orEmpty()
     private var markedReviewed = false
 
-    private val listing = listings.observe(listingId)
+    private val listing = listings.observeWithLiveEvent(listingId)
         .onEach { it?.let { l -> people.request(l.memberIds + l.ownerId) } }
         .catch { emit(null) }
         .onStart { emit(null) }
@@ -103,22 +108,50 @@ class ApplicantDetailViewModel(
     }
 
     /** Offers a place; it stays open for [days] days unless the applicant answers first. */
-    fun sendOffer(days: Int) = run(R.string.msg_offer_sent) { applications.sendOffers(listingId, listOf(applicantId), days) }
+    fun sendOffer(days: Int) {
+        val actionId = UUID.randomUUID().toString()
+        run(R.string.msg_offer_sent, after = { tell(actionId, NotificationType.OfferReceived) }) {
+            applications.sendOffers(listingId, listOf(applicantId), days, uid)
+        }
+    }
 
-    fun cancelOffer() = run(R.string.msg_offer_cancelled) { applications.cancelOffer(listingId, applicantId) }
+    /** Not going ahead with this application; the applicant is told (FR14, FR19). */
+    fun notSelected() {
+        val actionId = UUID.randomUUID().toString()
+        run(R.string.msg_not_selected, after = { tell(actionId, NotificationType.ApplicationDeclined) }) {
+            applications.markNotSelected(listingId, applicantId)
+        }
+    }
 
-    private fun run(success: Int, block: suspend () -> Unit) {
+    fun cancelOffer() {
+        val actionId = UUID.randomUUID().toString()
+        run(R.string.msg_offer_cancelled, after = { tell(actionId, NotificationType.OfferCancelled) }) {
+            applications.cancelOffer(listingId, applicantId, uid)
+        }
+    }
+
+    /** Lets the applicant know; never holds up the action itself (US19). */
+    private fun tell(actionId: String, type: NotificationType) {
+        val me = session.profile ?: return
+        val title = state.value.listing?.title ?: state.value.application?.listingTitle.orEmpty()
+        viewModelScope.launch {
+            notifications.send(actionId, listOf(applicantId), type, listingId, title, me.uid, me.displayName, NotificationTarget.Listing)
+        }
+    }
+
+    private fun run(success: Int, after: () -> Unit = {}, block: suspend () -> Unit) {
         if (extras.value.busy) return
         extras.update { it.copy(busy = true) }
         viewModelScope.launch {
             val result = attempt { block() }
+            if (result.isSuccess) after()
             extras.update {
                 it.copy(
                     busy = false,
                     done = if (result.isSuccess) System.nanoTime() else it.done,
                     message = result.fold(
                         onSuccess = { UserMessage(success) },
-                        onFailure = { e -> UserMessage(e.toAppError().message) },
+                        onFailure = { e -> UserMessage(e.toAppError().message, retry = { run(success, after, block) }) },
                     ),
                 )
             }

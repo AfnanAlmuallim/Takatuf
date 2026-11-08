@@ -3,12 +3,15 @@ package com.z.takatuf.data
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import com.z.takatuf.data.firebase.awaitTransaction
 import com.z.takatuf.data.firebase.awaitWrite
 import com.z.takatuf.data.firebase.observe
 import com.z.takatuf.data.firebase.toApplication
 import com.z.takatuf.data.firebase.toTimestamp
 import com.z.takatuf.data.model.Application
 import com.z.takatuf.data.model.ApplicationStatus
+import com.z.takatuf.data.firebase.toListing
+import com.z.takatuf.data.model.ParticipationStatus
 import com.z.takatuf.data.model.Listing
 import com.z.takatuf.data.model.Profile
 import com.z.takatuf.domain.Dates
@@ -98,6 +101,28 @@ class ApplicationRepository(private val db: FirebaseFirestore) {
         batch.commit().awaitWrite()
     }
 
+    /**
+     * After the team completes the project, closes every application still waiting so nobody is
+     * left "under review" (US17). Returns who was affected, so they can be told.
+     */
+    suspend fun closeOpen(listingId: String): List<String> {
+        val open = applications(listingId)
+            .whereIn("status", ApplicationStatus.entries.filter { it.isActive }.map { it.key })
+            .get().await().documents
+        if (open.isEmpty()) return emptyList()
+        val batch = db.batch()
+        open.forEach { batch.update(it.reference, mapOf("status" to ApplicationStatus.Closed.key, "updatedAt" to FieldValue.serverTimestamp())) }
+        batch.commit().awaitWrite()
+        return open.map { it.id }
+    }
+
+    /** The owner decides not to go ahead with an application (FR14). */
+    suspend fun markNotSelected(listingId: String, applicantId: String) {
+        ref(listingId, applicantId).update(
+            mapOf("status" to ApplicationStatus.NotSelected.key, "reviewed" to true, "updatedAt" to FieldValue.serverTimestamp()),
+        ).awaitWrite()
+    }
+
     suspend fun withdraw(listingId: String, applicantId: String) {
         ref(listingId, applicantId)
             .update(mapOf("status" to ApplicationStatus.Withdrawn.key, "updatedAt" to FieldValue.serverTimestamp()))
@@ -120,11 +145,15 @@ class ApplicationRepository(private val db: FirebaseFirestore) {
      * Offers a place to each applicant. An offer only reserves nothing: the first people to
      * accept fill the places, and the rules refuse acceptances once the team is full.
      */
-    suspend fun sendOffers(listingId: String, applicantIds: Collection<String>, days: Int) {
+    suspend fun sendOffers(listingId: String, applicantIds: Collection<String>, days: Int, actorUid: String, detail: String = "") {
         if (applicantIds.isEmpty()) return
         val expires = Dates.endOf(Dates.today().plusDays(days.toLong())).toTimestamp()
         applicantIds.chunked(400).forEach { chunk ->
             val batch = db.batch()
+            // Logged with how the people were chosen, e.g. from a suggested team (NFR14).
+            chunk.forEach { id ->
+                batch.set(AuditLog.ref(db), AuditLog.entry(AuditLog.Action.OfferSent, actorUid, listingId, id, detail))
+            }
             chunk.forEach { id ->
                 batch.update(
                     ref(listingId, id),
@@ -140,8 +169,12 @@ class ApplicationRepository(private val db: FirebaseFirestore) {
         }
     }
 
-    suspend fun cancelOffer(listingId: String, applicantId: String) {
-        ref(listingId, applicantId).update("status", ApplicationStatus.Shortlisted.key).awaitWrite()
+    suspend fun cancelOffer(listingId: String, applicantId: String, actorUid: String) {
+        db.batch()
+            .update(ref(listingId, applicantId), "status", ApplicationStatus.Shortlisted.key)
+            .set(AuditLog.ref(db), AuditLog.entry(AuditLog.Action.OfferCancelled, actorUid, listingId, applicantId))
+            .commit()
+            .awaitWrite()
     }
 
     /**
@@ -155,7 +188,11 @@ class ApplicationRepository(private val db: FirebaseFirestore) {
         db.runTransaction { tx ->
             val listingSnap = tx.get(listingRef)
             val application = tx.get(appRef).toApplication() ?: throw AppException(AppError.OfferGone)
+            // A retry after a lost confirmation finds the student already on the team: that's success.
+            val memberIds = (listingSnap.get("memberIds") as? List<*>).orEmpty()
+            if (application.status == ApplicationStatus.Accepted && me.uid in memberIds) return@runTransaction
             if (application.status != ApplicationStatus.Offered) throw AppException(AppError.OfferGone)
+            if (listingSnap.get("completedAt") != null || listingSnap.getBoolean("hidden") == true) throw AppException(AppError.NotAccepting)
             if (application.offerExpired(Instant.now())) throw AppException(AppError.OfferExpired)
 
             val roles = (listingSnap.get("roles") as? List<*>)?.filterIsInstance<Map<*, *>>().orEmpty()
@@ -192,18 +229,36 @@ class ApplicationRepository(private val db: FirebaseFirestore) {
                     "updatedAt" to FieldValue.serverTimestamp(),
                 ),
             )
-        }.await()
+            // Joining starts a participation record for the student's passport (US17).
+            listingSnap.toListing()?.let { listing ->
+                tx.set(
+                    RecordsRepository.participationRef(db, me.uid, listingId),
+                    RecordsRepository.record(
+                        listing,
+                        application.roleTitle,
+                        wasLead = false,
+                        ParticipationStatus.Active,
+                        startedAt = FieldValue.serverTimestamp(),
+                        endedAt = null,
+                    ),
+                )
+            }
+            tx.set(AuditLog.ref(db), AuditLog.entry(AuditLog.Action.OfferAccepted, me.uid, listingId, me.uid, application.roleTitle))
+        }.awaitTransaction()
     }
 
     suspend fun declineOffer(listingId: String, applicantId: String) {
-        ref(listingId, applicantId)
+        db.batch()
             .update(
+                ref(listingId, applicantId),
                 mapOf(
                     "status" to ApplicationStatus.Declined.key,
                     "respondedAt" to FieldValue.serverTimestamp(),
                     "updatedAt" to FieldValue.serverTimestamp(),
                 ),
             )
+            .set(AuditLog.ref(db), AuditLog.entry(AuditLog.Action.OfferDeclined, applicantId, listingId, applicantId))
+            .commit()
             .awaitWrite()
     }
 

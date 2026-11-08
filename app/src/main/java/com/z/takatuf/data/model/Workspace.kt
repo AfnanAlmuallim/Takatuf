@@ -24,10 +24,12 @@ data class Milestone(
     val createdBy: String,
     val completedAt: Instant?,
     val updatedAt: Instant?,
+    /** Saved on this device but not yet confirmed by the server (US21). */
+    val pending: Boolean = false,
 ) {
     val isDone: Boolean get() = status == MilestoneStatus.Done
 
-    fun isOverdue(now: Instant): Boolean = !isDone && dueDate != null && dueDate.isBefore(now)
+    fun isOverdue(now: Instant): Boolean = !isDone && dueDate != null && !now.isBefore(dueDate)
 }
 
 /** A progress note posted to the team, at `listings/{listingId}/updates/{id}`. */
@@ -38,6 +40,8 @@ data class TeamUpdate(
     val text: String,
     val link: String,
     val createdAt: Instant?,
+    /** Saved on this device but not yet confirmed by the server (US21). */
+    val pending: Boolean = false,
 )
 
 /** A link to work the team produced, at `listings/{listingId}/deliverables/{id}`. */
@@ -48,6 +52,8 @@ data class Deliverable(
     val addedBy: String,
     val addedByName: String,
     val createdAt: Instant?,
+    /** Saved on this device but not yet confirmed by the server (US21). */
+    val pending: Boolean = false,
 )
 
 /** A role the AI suggested from a project description, for the owner to confirm. */

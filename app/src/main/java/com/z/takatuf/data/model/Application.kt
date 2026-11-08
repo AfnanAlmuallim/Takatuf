@@ -21,7 +21,13 @@ enum class ApplicationStatus(val key: String) {
     Left("left"),
 
     /** A member the lead removed from the team. */
-    Removed("removed");
+    Removed("removed"),
+
+    /** Still waiting when the team completed the project, so recruitment ended for it. */
+    Closed("closed"),
+
+    /** The owner decided not to go ahead with this application (FR14). */
+    NotSelected("not_selected");
 
     /** Still part of recruitment: the owner can act on it and the applicant can withdraw. */
     val isActive: Boolean get() = this == Submitted || this == Shortlisted || this == Offered || this == Reconfirm

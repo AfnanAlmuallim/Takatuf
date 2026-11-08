@@ -69,6 +69,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.z.takatuf.R
+import com.z.takatuf.ui.notifications.InboxButton
 import com.z.takatuf.data.model.ListingKind
 import com.z.takatuf.ui.appViewModel
 import com.z.takatuf.ui.common.BrandMark
@@ -82,6 +83,7 @@ import java.time.Instant
 fun DiscoverScreen(
     onOpenListing: (String) -> Unit,
     onPost: (ListingKind) -> Unit,
+    onInbox: () -> Unit = {},
 ) {
     val viewModel = appViewModel { c, _ -> DiscoverViewModel(c.session, c.listings, c.saved, c.applications) }
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -97,6 +99,7 @@ fun DiscoverScreen(
         onToggleSave = viewModel::toggleSave,
         onOpenListing = onOpenListing,
         onPost = onPost,
+        onInbox = onInbox,
     )
 }
 
@@ -114,6 +117,7 @@ fun DiscoverContent(
     onToggleSave: (String, Boolean) -> Unit,
     onOpenListing: (String) -> Unit,
     onPost: (ListingKind) -> Unit,
+    onInbox: (() -> Unit)? = null,
 ) {
     var showFilters by rememberSaveable { mutableStateOf(false) }
     var showPost by rememberSaveable { mutableStateOf(false) }
@@ -141,7 +145,7 @@ fun DiscoverContent(
                 .padding(padding),
             contentPadding = PaddingValues(bottom = 96.dp),
         ) {
-            item(key = "brand") { BrandHeader() }
+            item(key = "brand") { BrandHeader(onInbox) }
             stickyHeader(key = "controls") {
                 SearchAndFilters(
                     state = state,
@@ -169,6 +173,7 @@ fun DiscoverContent(
                             mySkills = state.mySkills,
                             myApplication = state.myApplications[listing.id],
                             isOwn = listing.ownerId == state.myUid,
+                            parentEvent = listing.parentIn(state.events),
                         )
                         if (index < state.items.lastIndex) {
                             HorizontalDivider(
@@ -198,11 +203,11 @@ fun DiscoverContent(
 }
 
 @Composable
-private fun BrandHeader() {
+private fun BrandHeader(onInbox: (() -> Unit)?) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp),
+            .padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         BrandMark(size = 32.dp)
@@ -211,8 +216,11 @@ private fun BrandHeader() {
             text = stringResource(R.string.app_name),
             style = MaterialTheme.typography.titleLarge,
             color = MaterialTheme.colorScheme.secondary,
-            modifier = Modifier.semantics { heading() },
+            modifier = Modifier
+                .weight(1f)
+                .semantics { heading() },
         )
+        if (onInbox != null) InboxButton(onClick = onInbox)
     }
 }
 

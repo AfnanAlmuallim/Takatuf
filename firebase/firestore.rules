@@ -1,7 +1,9 @@
 rules_version = '2';
 
-// Takatuf, Sprints 1–2: accounts, Skill Passports, listings, applications, saved items,
-// offers and membership, leadership handover, and the private team workspace.
+// Takatuf, Sprints 1–3: accounts, Skill Passports, listings, applications, saved items,
+// offers and membership, leadership handover, the private team workspace, participation
+// records, contributions and feedback, notifications, reporting and moderation, and an
+// append-only action log.
 // The app never relies on its own checks for permissions; everything below is enforced here,
 // including for requests made outside the app (NFR02).
 service cloud.firestore {
@@ -45,6 +47,57 @@ service cloud.firestore {
       return !(key in data) || data[key] == null || data[key] is timestamp;
     }
 
+    // A web link: http(s), a host with a dot, no spaces, at most 300 characters. The app
+    // normalises links to this same form (Validators.webLink), so both sides agree.
+    function webLink(value) {
+      return value is string && value.size() <= 300 && value.matches('https?://[^\\s/]+[.][^\\s]*');
+    }
+
+    // An optional link: absent or empty, or else a valid web link.
+    function optionalLink(data, key) {
+      return !(key in data) || data[key] == '' || webLink(data[key]);
+    }
+
+    // Up to three supporting links, each a valid web link.
+    function webLinks(l) {
+      return l is list && l.size() <= 3
+        && (l.size() < 1 || webLink(l[0]))
+        && (l.size() < 2 || webLink(l[1]))
+        && (l.size() < 3 || webLink(l[2]));
+    }
+
+    // Administrators are listed in /admins, which only the Firebase console or the admin
+    // script can change; the app never writes it (US20).
+    function isAdmin() {
+      return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // The signed-in student's display name, so names shown to others can't be made up.
+    function myName() {
+      return get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.displayName;
+    }
+
+    function listingDoc(listingId) {
+      return get(/databases/$(database)/documents/listings/$(listingId)).data;
+    }
+
+    // Someone with a recorded part in a listing: its lead, a member, an applicant, or a former
+    // participant. Notifications may only pass between people connected this way.
+    function involved(l, listingId, who) {
+      return l.ownerId == who
+        || who in l.get('memberIds', [])
+        || exists(/databases/$(database)/documents/listings/$(listingId)/applications/$(who))
+        || exists(/databases/$(database)/documents/passports/$(who)/participation/$(listingId));
+    }
+
+    // ---------- administrators (US20, US22) ----------
+
+    match /admins/{uid} {
+      allow get: if isUser(uid) || isAdmin();
+      allow list: if isAdmin();
+      allow write: if false;
+    }
+
     // ---------- public identity card: name, major, year, headline ----------
 
     match /profiles/{uid} {
@@ -74,8 +127,23 @@ service cloud.firestore {
         return get(/databases/$(database)/documents/profiles/$(uid)).data.visibility;
       }
 
+      // The student shared their passport by applying. The grant only counts while the viewer
+      // still leads that listing and the application is still alive, so it ends on its own when
+      // the lead hands over the team or the student withdraws (FR03, US22).
       function sharedWithViewer() {
-        return exists(/databases/$(database)/documents/passports/$(uid)/viewers/$(request.auth.uid));
+        let grant = /databases/$(database)/documents/passports/$(uid)/viewers/$(request.auth.uid);
+        let listingId = get(grant).data.listingId;
+        return exists(grant)
+          && listingDoc(listingId).ownerId == request.auth.uid
+          && get(/databases/$(database)/documents/listings/$(listingId)/applications/$(uid)).data.status
+               in ['submitted', 'shortlisted', 'offered', 'reconfirm', 'accepted'];
+      }
+
+      // Whoever may see the passport may also see its participation records, contributions
+      // and feedback (US17, US18). Administrators may see them to handle reports.
+      function passportVisible() {
+        return isUser(uid) || isAdmin()
+          || (signedIn() && (visibility() == 'everyone' || (visibility() == 'applied' && sharedWithViewer())));
       }
 
       allow get: if isUser(uid)
@@ -100,6 +168,366 @@ service cloud.firestore {
           && get(/databases/$(database)/documents/listings/$(incoming().listingId)).data.ownerId == request.auth.uid
           && exists(/databases/$(database)/documents/listings/$(incoming().listingId)/applications/$(uid));
       }
+
+      // ---------- participation in a team (US17) ----------
+      // One record per listing. It starts active when the student joins (or posts the listing),
+      // and ends as completed, left or removed. Each transition is checked against the team.
+      match /participation/{listingId} {
+        function teamNow() {
+          return get(/databases/$(database)/documents/listings/$(listingId)).data;
+        }
+
+        function teamAfter() {
+          return getAfter(/databases/$(database)/documents/listings/$(listingId)).data;
+        }
+
+        function onTeam(t) {
+          return t.ownerId == uid || uid in t.get('memberIds', []);
+        }
+
+        function wasActive() {
+          return resource == null ? onTeam(teamNow()) : resource.data.status == 'active';
+        }
+
+        // Only someone who leads (or led) the team may carry the "led this team" mark.
+        function leadMarkHonest() {
+          return incoming().wasLead == false || teamAfter().ownerId == uid
+            || (resource != null && resource.data.wasLead == true);
+        }
+
+        // The role on the record is the one held on the team: Lead for the owner, otherwise the
+        // member's role, or Member when that role has no title.
+        function roleHonest() {
+          let t = teamAfter();
+          return t.ownerId == uid ? incoming().role == 'Lead'
+            : (incoming().role == t.members[uid].roleTitle
+               || (t.members[uid].roleTitle == '' && incoming().role == 'Member'));
+        }
+
+        // A completed record stays completed; someone who left can become active by rejoining.
+        function becomesActive() {
+          return isUser(uid)
+            && incoming().status == 'active'
+            && onTeam(teamAfter())
+            && (resource == null || resource.data.status != 'completed')
+            && roleHonest();
+        }
+
+        function leaves() {
+          return isUser(uid) && incoming().status == 'left'
+            && wasActive() && !onTeam(teamAfter())
+            && incoming().endedAt == request.time;
+        }
+
+        function isRemoved() {
+          return teamAfter().ownerId == request.auth.uid && !isUser(uid)
+            && incoming().status == 'removed'
+            && wasActive() && !onTeam(teamAfter())
+            && incoming().endedAt == request.time;
+        }
+
+        function completes() {
+          return (isUser(uid) || teamAfter().ownerId == request.auth.uid)
+            && incoming().status == 'completed'
+            && teamAfter().get('completedAt', null) != null
+            && onTeam(teamAfter())
+            && incoming().endedAt is timestamp;
+        }
+
+        allow read: if passportVisible() || teamNow().ownerId == request.auth.uid;
+        allow create, update: if validParticipation(incoming(), listingId)
+          && (resource == null || !changedKeys().hasAny(['listingId', 'kind', 'startedAt']))
+          && (resource == null || incoming().status == 'active' || !changedKeys().hasAny(['role']))
+          && leadMarkHonest()
+          && (becomesActive() || leaves() || isRemoved() || completes());
+        allow delete: if false;
+      }
+
+      // ---------- contributions (US17) ----------
+      // A student records their own contributions (self-reported until confirmed); the lead of
+      // the listing can record one for a member, or confirm one, which marks it as verified.
+      match /contributions/{contributionId} {
+        function leadOf(listingId) {
+          return listingDoc(listingId).ownerId == request.auth.uid;
+        }
+
+        function teammateOf(listingId) {
+          return request.auth.uid in listingDoc(listingId).get('memberIds', []);
+        }
+
+        function participated(listingId) {
+          return exists(/databases/$(database)/documents/passports/$(uid)/participation/$(listingId));
+        }
+
+        allow read: if passportVisible() || leadOf(resource.data.listingId) || teammateOf(resource.data.listingId);
+        allow create: if validContribution(incoming())
+          && participated(incoming().listingId)
+          && incoming().listingTitle == listingDoc(incoming().listingId).title
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && ((isUser(uid) && incoming().recordedBy == uid && incoming().confirmedBy == null)
+              || (!isUser(uid) && leadOf(incoming().listingId)
+                  && incoming().recordedBy == request.auth.uid
+                  && incoming().confirmedBy == request.auth.uid
+                  && incoming().confirmedAt == request.time));
+        allow update: if validContribution(incoming())
+          && incoming().updatedAt == request.time
+          && !changedKeys().hasAny(['listingId', 'listingTitle', 'recordedBy', 'recordedByName', 'createdAt'])
+          && ((isUser(uid) && incoming().confirmedBy == null)
+              || (!isUser(uid) && leadOf(resource.data.listingId)
+                  && changedKeys().hasOnly(['confirmedBy', 'confirmedByName', 'confirmedAt', 'updatedAt'])
+                  && (incoming().confirmedBy == request.auth.uid || incoming().confirmedBy == null)));
+        allow delete: if isUser(uid);
+      }
+
+      // ---------- feedback from teammates (US18) ----------
+      // Only recorded participants can review each other, and only after the project is
+      // completed or one of them has left. One review per reviewer per project; reviews are
+      // never deleted, so disputed records are preserved (R7).
+      match /feedback/{feedbackId} {
+        function record(who, listingId) {
+          return get(/databases/$(database)/documents/passports/$(who)/participation/$(listingId)).data;
+        }
+
+        function windowOpen(listingId) {
+          return listingDoc(listingId).get('completedAt', null) != null
+            || record(request.auth.uid, listingId).status in ['completed', 'left', 'removed']
+            || record(uid, listingId).status in ['completed', 'left', 'removed'];
+        }
+
+        allow read: if isUser(uid) || isAdmin()
+          || (signedIn() && resource.data.reviewerUid == request.auth.uid)
+          || (passportVisible() && resource.data.hidden == false);
+        allow create: if signedIn() && !isUser(uid)
+          && validFeedback(incoming())
+          && feedbackId == incoming().listingId + '_' + request.auth.uid
+          && incoming().reviewerUid == request.auth.uid
+          && incoming().reviewerName == myName()
+          && exists(/databases/$(database)/documents/passports/$(request.auth.uid)/participation/$(incoming().listingId))
+          && exists(/databases/$(database)/documents/passports/$(uid)/participation/$(incoming().listingId))
+          && windowOpen(incoming().listingId)
+          && (incoming().leadership == null || record(uid, incoming().listingId).wasLead == true)
+          && incoming().disputed == false
+          && incoming().hidden == false
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if validFeedback(incoming()) && (
+          // The reviewer edits their review while it isn't disputed.
+          (isUser(resource.data.reviewerUid)
+            && resource.data.disputed == false
+            && changedKeys().hasOnly(['contribution', 'leadership', 'comment', 'updatedAt'])
+            && (incoming().leadership == null || record(uid, resource.data.listingId).wasLead == true)
+            && incoming().updatedAt == request.time)
+          // The person reviewed disputes it, with a reason.
+          || (isUser(uid)
+            && resource.data.disputed == false
+            && incoming().disputed == true
+            && changedKeys().hasOnly(['disputed', 'disputeReason', 'disputedAt'])
+            && text(incoming().disputeReason, 3, 500)
+            && incoming().disputedAt == request.time)
+          // An administrator hides or restores it, with a note.
+          || (isAdmin()
+            && changedKeys().hasOnly(['hidden', 'moderationNote', 'updatedAt'])
+            && incoming().hidden is bool
+            && text(incoming().moderationNote, 3, 500)
+            && incoming().updatedAt == request.time)
+        );
+        allow delete: if false;
+      }
+    }
+
+    function validParticipation(d, listingId) {
+      return d.keys().hasOnly(['listingId', 'listingTitle', 'kind', 'role', 'wasLead', 'status',
+                               'startedAt', 'endedAt', 'updatedAt'])
+        && d.listingId == listingId
+        && text(d.listingTitle, 1, 90)
+        && d.kind in ['project', 'team']
+        && text(d.role, 1, 60)
+        && d.wasLead is bool
+        && d.status in ['active', 'completed', 'left', 'removed']
+        && d.startedAt is timestamp
+        && optionalTimestamp(d, 'endedAt')
+        && d.updatedAt == request.time;
+    }
+
+    function validContribution(d) {
+      return d.keys().hasOnly(['listingId', 'listingTitle', 'title', 'detail', 'links', 'recordedBy', 'recordedByName',
+                               'confirmedBy', 'confirmedByName', 'confirmedAt', 'createdAt', 'updatedAt'])
+        && d.listingId is string
+        && text(d.listingTitle, 1, 90)
+        && text(d.title, 3, 80)
+        && d.detail is string && d.detail.size() <= 500
+        && webLinks(d.links)
+        && text(d.recordedByName, 1, 60)
+        && (d.confirmedBy == null || d.confirmedBy is string)
+        && (d.confirmedByName == null || d.confirmedByName is string)
+        && optionalTimestamp(d, 'confirmedAt')
+        // A claim nobody confirmed can't carry a confirmer's name or date.
+        && (d.confirmedBy != null || (d.get('confirmedByName', null) == null && d.get('confirmedAt', null) == null));
+    }
+
+    function validFeedback(d) {
+      return d.keys().hasOnly(['listingId', 'listingTitle', 'reviewerUid', 'reviewerName', 'contribution', 'leadership',
+                               'comment', 'disputed', 'disputeReason', 'disputedAt', 'hidden', 'moderationNote',
+                               'createdAt', 'updatedAt'])
+        && d.listingId is string
+        && text(d.listingTitle, 1, 90)
+        && text(d.reviewerName, 1, 60)
+        && intBetween(d.contribution, 1, 5)
+        && (d.leadership == null || intBetween(d.leadership, 1, 5))
+        && d.comment is string && d.comment.size() <= 500
+        && d.disputed is bool
+        && d.hidden is bool;
+    }
+
+    // ---------- in-app notifications (US19) ----------
+    // Each user's inbox. Anyone connected to the same listing may leave a notification; only
+    // the recipient can read it, mark it read or delete it. The sender picks a document id per
+    // action, so a retried action finds the notification already there instead of sending a
+    // second one.
+    match /users/{uid}/notifications/{notificationId} {
+      allow read, delete: if isUser(uid);
+      allow update: if isUser(uid) && changedKeys().hasOnly(['read']) && incoming().read is bool;
+      allow create: if signedIn() && !isUser(uid)
+        && validNotification(incoming())
+        && incoming().fromUid == request.auth.uid
+        && incoming().read == false
+        && incoming().createdAt == request.time
+        && (isAdmin() || (incoming().fromName == myName() && rightSender(incoming()) && connected(incoming(), uid)));
+    }
+
+    // Decisions only the listing's lead makes, and notices only moderators send.
+    function rightSender(n) {
+      return !(n.type in ['report_resolved', 'moderation_notice'])
+        // Milestones belong to the team, so only someone on it can send these.
+        && (!(n.type in ['milestone_assigned', 'milestone_completed'])
+            || listingDoc(n.listingId).ownerId == request.auth.uid
+            || request.auth.uid in listingDoc(n.listingId).get('memberIds', []))
+        && (!(n.type in ['offer_received', 'offer_cancelled', 'reconfirm_requested', 'listing_changed',
+                         'project_completed', 'member_removed', 'recruitment_closed', 'application_declined',
+                         'lead_requested'])
+            || listingDoc(n.listingId).ownerId == request.auth.uid);
+    }
+
+    function connected(n, recipient) {
+      let l = listingDoc(n.listingId);
+      return involved(l, n.listingId, recipient)
+        && (involved(l, n.listingId, request.auth.uid)
+            || (n.type == 'event_changed' && listingDoc(l.eventId).ownerId == request.auth.uid));
+    }
+
+    function validNotification(d) {
+      return d.keys().hasOnly(['type', 'listingId', 'listingTitle', 'fromUid', 'fromName', 'target', 'targetId',
+                               'note', 'read', 'createdAt'])
+        && d.type in ['application_received', 'offer_received', 'offer_cancelled', 'offer_accepted', 'offer_declined',
+                      'reconfirm_requested', 'interest_confirmed', 'member_left', 'member_removed', 'lead_requested',
+                      'lead_accepted', 'lead_declined', 'milestone_assigned', 'listing_changed', 'event_changed',
+                      'project_completed', 'feedback_received', 'report_resolved', 'moderation_notice',
+                      'recruitment_closed', 'application_declined', 'milestone_completed']
+        && d.listingId is string && d.listingId.size() <= 128
+        && d.listingTitle is string && d.listingTitle.size() <= 120
+        && text(d.fromName, 1, 60)
+        && d.target in ['listing', 'workspace', 'applicants', 'applicant', 'activity', 'teams', 'passport', 'reports']
+        && d.targetId is string && d.targetId.size() <= 256
+        && d.note is string && d.note.size() <= 500;
+    }
+
+    // ---------- reports and moderation (US20, FR22) ----------
+    // A report about a listing, a person's conduct or a piece of feedback. Its id joins the
+    // target and the reporter, so one person reports one thing once, however often they retry.
+    match /reports/{reportId} {
+      // A reporter may also look up their own report id before it exists, so a retried report
+      // can check whether the first attempt arrived (US21). The id ends with the reporter's
+      // uid, so this reveals nothing about anyone else's reports.
+      allow get: if isAdmin()
+        || (signedIn() && resource == null && reportId.matches('.*_' + request.auth.uid))
+        || (signedIn() && resource != null && resource.data.reporterUid == request.auth.uid);
+      allow list: if isAdmin() || (signedIn() && resource.data.reporterUid == request.auth.uid);
+      allow create: if signedIn()
+        && validReport(incoming())
+        && incoming().reporterUid == request.auth.uid
+        && incoming().reporterName == myName()
+        && reportId == incoming().targetType + '_' + incoming().targetKey + '_' + request.auth.uid
+        && incoming().status == 'open'
+        && incoming().resolution == ''
+        && incoming().resolvedBy == null
+        && incoming().resolvedAt == null
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      // Only administrators change a report, and closing one needs a recorded reason.
+      allow update: if isAdmin()
+        && validReport(incoming())
+        && changedKeys().hasOnly(['status', 'resolution', 'resolvedBy', 'resolvedAt', 'updatedAt'])
+        && incoming().updatedAt == request.time
+        && (incoming().status in ['open', 'reviewing']
+            || (text(incoming().resolution, 3, 500)
+                && incoming().resolvedBy == request.auth.uid
+                && incoming().resolvedAt == request.time));
+      allow delete: if false;
+    }
+
+    function validReport(d) {
+      return d.keys().hasOnly(['reporterUid', 'reporterName', 'targetType', 'targetKey', 'targetPath', 'targetTitle',
+                               'targetOwnerUid', 'listingId', 'reason', 'details', 'status', 'resolution', 'resolvedBy',
+                               'resolvedAt', 'createdAt', 'updatedAt'])
+        && d.targetType in ['listing', 'user', 'feedback']
+        && text(d.targetKey, 1, 200)
+        && text(d.targetPath, 1, 300)
+        && text(d.targetTitle, 1, 120)
+        && d.targetOwnerUid is string
+        && d.listingId is string
+        && d.reason in ['inaccurate', 'inappropriate', 'spam', 'misconduct', 'unfair_feedback', 'other']
+        && d.details is string && d.details.size() <= 500
+        && d.status in ['open', 'reviewing', 'resolved', 'dismissed']
+        && d.resolution is string && d.resolution.size() <= 500
+        && text(d.reporterName, 1, 60);
+    }
+
+    // What an administrator did and why. Append-only: never edited or deleted (NFR14).
+    match /moderationActions/{actionId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin()
+        && incoming().keys().hasOnly(['reportId', 'adminUid', 'action', 'reason', 'targetPath', 'at'])
+        && incoming().adminUid == request.auth.uid
+        && incoming().action in ['reviewing', 'dismiss', 'resolve', 'hide_listing', 'unhide_listing', 'flag_listing',
+                                 'unflag_listing', 'hide_feedback', 'restore_feedback', 'warn_user']
+        && text(incoming().reason, 3, 500)
+        && incoming().reportId is string
+        && text(incoming().targetPath, 1, 300)
+        && incoming().at == request.time;
+      allow update, delete: if false;
+    }
+
+    // ---------- action log (US22, NFR14) ----------
+    // Key membership, recommendation and moderation actions, written alongside the action.
+    // Entries are added in the actor's own name, and only for actions that person could take:
+    // moderation by an administrator, the lead's actions by the listing's lead, and team
+    // actions by someone with a part in the listing. Only administrators can read them, and
+    // nobody can change or remove one.
+    match /auditLog/{entryId} {
+      function leadsAfter(listingId) {
+        return getAfter(/databases/$(database)/documents/listings/$(listingId)).data.ownerId == request.auth.uid;
+      }
+
+      allow read: if isAdmin();
+      allow create: if signedIn()
+        && incoming().keys().hasOnly(['action', 'actorUid', 'listingId', 'subjectUid', 'detail', 'at'])
+        && incoming().actorUid == request.auth.uid
+        && incoming().action in ['listing_created', 'offer_sent', 'offer_cancelled', 'offer_accepted', 'offer_declined',
+                                 'member_left', 'member_removed', 'lead_nominated', 'lead_accepted', 'lead_declined',
+                                 'place_reopened', 'project_completed', 'contribution_confirmed', 'feedback_disputed',
+                                 'report_created', 'moderation']
+        && incoming().listingId is string
+        && incoming().subjectUid is string
+        && incoming().detail is string && incoming().detail.size() <= 300
+        && incoming().at == request.time
+        && (incoming().action != 'moderation' || isAdmin())
+        && (!(incoming().action in ['listing_created', 'offer_sent', 'offer_cancelled', 'member_removed', 'lead_nominated',
+                                    'lead_accepted', 'place_reopened', 'project_completed', 'contribution_confirmed'])
+            || leadsAfter(incoming().listingId))
+        && (!(incoming().action in ['offer_accepted', 'offer_declined', 'member_left', 'lead_declined'])
+            || involved(listingDoc(incoming().listingId), incoming().listingId, request.auth.uid));
+      allow update, delete: if false;
     }
 
     function validPassport(d) {
@@ -128,18 +556,31 @@ service cloud.firestore {
     // ---------- listings: projects, event team requests and events (US03–US05) ----------
 
     match /listings/{listingId} {
-      allow read: if signedIn();
+      // A listing hidden by moderators stays readable only by administrators and the people
+      // with a part in it, who keep their record of it (US20). Queries must ask for visible
+      // listings, or for the student's own, because rules don't filter results.
+      allow get: if signedIn()
+        && (resource == null || resource.data.get('hidden', false) != true
+            || isAdmin() || involved(resource.data, listingId, request.auth.uid));
+      allow list: if signedIn()
+        && (resource.data.hidden == false
+            || resource.data.ownerId == request.auth.uid
+            || request.auth.uid in resource.data.memberIds
+            || isAdmin());
       allow create: if signedIn()
         && incoming().ownerId == request.auth.uid
+        && incoming().ownerName == myName()
         && incoming().status == 'open'
+        && incoming().hidden == false
         && incoming().createdAt == request.time
         && incoming().get('members', {}).size() == 0
         && incoming().get('memberIds', []).size() == 0
+        && incoming().get('formerMembers', {}).size() == 0
         && incoming().get('pendingLeader', null) == null
         && (incoming().kind == 'event' || incoming().openPlaces >= 1)
         && validListing(incoming());
       allow update: if signedIn() && validListing(incoming())
-        && (leadEdits() || joinsTeam() || leavesTeam() || takesLead() || declinesLead());
+        && (leadEdits() || adminModerates() || joinsTeam() || leavesTeam() || takesLead() || declinesLead());
       // Listings are closed rather than deleted so applicants and members keep a record.
       allow delete: if false;
 
@@ -149,12 +590,28 @@ service cloud.firestore {
       // anyone: joining always takes the applicant's own acceptance.
       function leadEdits() {
         return resource.data.ownerId == request.auth.uid
-          && !changedKeys().hasAny(['ownerId', 'kind', 'createdAt'])
+          && !changedKeys().hasAny(['ownerId', 'kind', 'createdAt', 'hidden', 'moderationNote'])
+          // The lead clears a moderator's "may be outdated" flag by correcting the listing (R6).
+          && (!changedKeys().hasAny(['flag']) || incoming().flag == null)
+          // Completing a project stamps the moment; reopening it clears the stamp (US17).
+          && (!changedKeys().hasAny(['completedAt'])
+              || incoming().completedAt == null || incoming().completedAt == request.time)
           && incoming().get('memberIds', []).toSet().difference(resource.data.get('memberIds', []).toSet()).size() == 0
           && incoming().get('members', {}).keys().toSet().difference(resource.data.get('members', {}).keys().toSet()).size() == 0
+          && formerHonest(resource.data, incoming())
           && (incoming().get('pendingLeader', null) == null
               || (incoming().pendingLeader.keys().hasOnly(['uid', 'name', 'requestedAt'])
                   && incoming().pendingLeader.uid in incoming().get('memberIds', [])));
+      }
+
+      // An administrator hides a listing or flags it as possibly outdated, with a note (US20).
+      function adminModerates() {
+        return isAdmin()
+          && changedKeys().hasOnly(['hidden', 'flag', 'moderationNote', 'updatedAt'])
+          && incoming().get('hidden', false) is bool
+          && (incoming().get('flag', null) == null
+              || (incoming().flag.keys().hasOnly(['reason', 'at']) && text(incoming().flag.reason, 3, 300)))
+          && text(incoming().moderationNote, 3, 500);
       }
 
       // An applicant with a live offer takes one place: their role and the team lose one open
@@ -167,6 +624,8 @@ service cloud.firestore {
         let offer = getAfter(/databases/$(database)/documents/listings/$(listingId)/applications/$(me)).data;
         return me != before.ownerId
           && !(me in before.get('memberIds', []))
+          && before.get('completedAt', null) == null
+          && before.get('hidden', false) != true
           && changedKeys().hasAll(['roles', 'members', 'memberIds'])
           && changedKeys().hasOnly(['roles', 'openPlaces', 'teamSize', 'members', 'memberIds', 'updatedAt'])
           && offer.status == 'accepted'
@@ -186,7 +645,8 @@ service cloud.firestore {
         let before = resource.data;
         let after = incoming();
         return me in before.get('memberIds', [])
-          && changedKeys().hasOnly(['members', 'memberIds', 'teamSize', 'pendingLeader', 'updatedAt'])
+          && changedKeys().hasOnly(['members', 'memberIds', 'formerMembers', 'teamSize', 'pendingLeader', 'updatedAt'])
+          && formerHonest(before, after)
           && after.get('memberIds', []).toSet() == before.memberIds.toSet().difference([me].toSet())
           && after.get('members', {}).diff(before.get('members', {})).affectedKeys().hasOnly([me])
           && !(me in after.get('members', {}))
@@ -237,11 +697,18 @@ service cloud.firestore {
           return signedIn() && listing().ownerId == request.auth.uid;
         }
 
+        // Deadlines and end dates are exclusive: open strictly before them. A team request is
+        // judged by its event as it is now, not by the dates copied when it was linked, so
+        // moving an event into the past closes its requests at once.
         function accepting(l) {
           return l.kind in ['project', 'team']
             && l.status == 'open'
             && l.get('openPlaces', 1) > 0
-            && (!('deadline' in l) || l.deadline == null || request.time < l.deadline);
+            && (!('deadline' in l) || l.deadline == null || request.time < l.deadline)
+            && !l.get('hidden', false)
+            && l.get('completedAt', null) == null
+            && (l.kind != 'team'
+                || request.time < get(/databases/$(database)/documents/listings/$(l.eventId)).data.endDate);
         }
 
         // Unrelated students can neither read nor manage applications.
@@ -252,6 +719,7 @@ service cloud.firestore {
           && applicationKeys(incoming())
           && validAnswer(incoming())
           && incoming().applicantId == applicantId
+          && incoming().applicantName == myName()
           && incoming().listingId == listingId
           && incoming().ownerId == listing().ownerId
           && incoming().listingKind == listing().kind
@@ -276,6 +744,7 @@ service cloud.firestore {
           || (isUser(applicantId)
             && resource.data.status in ['withdrawn', 'declined', 'left']
             && incoming().status == 'submitted'
+            && incoming().applicantName == myName()
             && incoming().reviewed == false
             && incoming().ownerId == listing().ownerId
             && changedKeys().hasOnly(['roleId', 'roleTitle', 'contribution', 'hoursPerWeek', 'availabilityNote',
@@ -338,6 +807,19 @@ service cloud.firestore {
             && incoming().status == 'reconfirm'
             && changedKeys().hasOnly(['status', 'reviewed', 'reconfirmRequestedAt'])
             && incoming().reconfirmRequestedAt == request.time)
+          // The owner decides not to go ahead with an application (FR14).
+          || (isListingOwner()
+            && resource.data.status in ['submitted', 'shortlisted', 'reconfirm']
+            && incoming().status == 'not_selected'
+            && changedKeys().hasOnly(['status', 'reviewed', 'updatedAt'])
+            && incoming().updatedAt == request.time)
+          // Once the project is completed, the owner closes applications still waiting (US17).
+          || (isListingOwner()
+            && resource.data.status in ['submitted', 'shortlisted', 'offered', 'reconfirm']
+            && incoming().status == 'closed'
+            && changedKeys().hasOnly(['status', 'updatedAt'])
+            && incoming().updatedAt == request.time
+            && listing().get('completedAt', null) != null)
           // The owner removes a member, alongside taking them off the team.
           || (isListingOwner()
             && resource.data.status == 'accepted'
@@ -359,11 +841,14 @@ service cloud.firestore {
         allow read: if inTeam(listingId);
         allow create: if inTeam(listingId)
           && validMilestone(listingId, incoming())
+          && incoming().dueDate is timestamp
           && incoming().createdBy == request.auth.uid
           && incoming().createdAt == request.time;
         // The lead, the milestone's creator and the person it's assigned to can update it.
         allow update: if inTeam(listingId)
           && validMilestone(listingId, incoming())
+          && (incoming().dueDate is timestamp
+              || (resource.data.get('dueDate', null) == null && !changedKeys().hasAny(['dueDate'])))
           && !changedKeys().hasAny(['createdBy', 'createdAt'])
           && (leadsTeam(listingId) || resource.data.createdBy == request.auth.uid
               || resource.data.assigneeId == request.auth.uid);
@@ -378,7 +863,7 @@ service cloud.firestore {
           && incoming().authorId == request.auth.uid
           && text(incoming().authorName, 1, 60)
           && text(incoming().text, 1, 1000)
-          && optionalText(incoming(), 'link', 300)
+          && optionalLink(incoming(), 'link')
           && incoming().createdAt == request.time;
         allow delete: if inTeam(listingId)
           && (resource.data.authorId == request.auth.uid || leadsTeam(listingId));
@@ -391,7 +876,7 @@ service cloud.firestore {
           && incoming().addedBy == request.auth.uid
           && text(incoming().addedByName, 1, 60)
           && text(incoming().label, 1, 60)
-          && text(incoming().url, 10, 300) && incoming().url.matches('https?://.+')
+          && webLink(incoming().url)
           && incoming().createdAt == request.time;
         allow delete: if inTeam(listingId)
           && (resource.data.addedBy == request.auth.uid || leadsTeam(listingId));
@@ -493,13 +978,31 @@ service cloud.firestore {
         && text(d.listingTitle, 1, 90);
     }
 
+    // Someone who leaves stays on the listing as a former member, so their work can still be
+    // confirmed and reviewed (US17, US18). The entry is an exact copy of their team entry, and
+    // only people leaving in this write can gain one.
+    function formerHonest(before, after) {
+      let was = before.get('formerMembers', {});
+      let now = after.get('formerMembers', {});
+      let gone = before.get('members', {}).diff(after.get('members', {})).addedKeys();
+      return now.diff(was).affectedKeys().difference(gone).size() == 0
+        && now.diff(was).removedKeys().size() == 0
+        && before.get('members', {}).values().concat(was.values()).hasAll(now.values());
+    }
+
     function validListing(d) {
       return d.keys().hasOnly(['kind', 'status', 'title', 'description', 'ownerId', 'ownerName', 'ownerMajor',
                                'createdAt', 'updatedAt', 'outcome', 'roles', 'hoursPerWeek', 'duration', 'teamSize',
                                'openPlaces', 'deadline', 'skills', 'eventId', 'event', 'eventType', 'organizer',
                                'sourceUrl', 'startDate', 'endDate', 'registrationDeadline', 'eligibility',
                                'eligibleLevel', 'teamSizeMin', 'teamSizeMax', 'format', 'location',
-                               'members', 'memberIds', 'pendingLeader', 'reopenedAt'])
+                               'members', 'memberIds', 'formerMembers', 'pendingLeader', 'reopenedAt', 'completedAt',
+                               'completion', 'hidden', 'flag', 'moderationNote'])
+        && optionalTimestamp(d, 'completedAt')
+        && (d.get('completion', null) == null
+            || (d.completion.keys().hasOnly(['summary', 'link'])
+                && d.completion.summary is string && d.completion.summary.size() <= 500
+                && optionalLink(d.completion, 'link')))
         && d.kind in ['project', 'team', 'event']
         && d.status in ['open', 'closed']
         && text(d.title, 4, 90)
@@ -509,6 +1012,7 @@ service cloud.firestore {
         && d.updatedAt == request.time
         && d.get('members', {}) is map
         && d.get('memberIds', []) is list
+        && d.get('formerMembers', {}) is map
         && (d.kind == 'event' ? validEvent(d) : validRecruitment(d));
     }
 
@@ -532,7 +1036,8 @@ service cloud.firestore {
         && optionalText(d, 'outcome', 400)
         && d.event is map
         && linked.kind == 'event'
-        && d.teamSize + d.openPlaces <= linked.teamSizeMax;
+        && d.teamSize + d.openPlaces <= linked.teamSizeMax
+        && d.teamSize + d.openPlaces >= linked.get('teamSizeMin', 1);
     }
 
     // Events name their organizer and official source, separately from who shared them (US04).

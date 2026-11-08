@@ -29,12 +29,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
+import com.z.takatuf.ui.common.ActionSheet
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -223,10 +222,13 @@ private fun MilestoneRow(
                     due != null && milestone.isOverdue(now) ->
                         Tag(stringResource(R.string.milestone_overdue, formatDay(Dates.lastDay(due))), tone = TagTone.Attention)
                     due != null -> Fact(Icons.Rounded.Event, stringResource(R.string.milestone_due, formatDay(Dates.lastDay(due))))
+                    // Saved before target dates were required; editing it asks for one.
+                    else -> Tag(stringResource(R.string.milestone_needs_date), tone = TagTone.Attention)
                 }
                 if (milestone.status == MilestoneStatus.Doing) {
                     Tag(stringResource(R.string.milestone_doing), tone = TagTone.Accent)
                 }
+                if (milestone.pending) Tag(stringResource(R.string.pending_send), tone = TagTone.Quiet)
             }
         }
     }
@@ -241,7 +243,7 @@ internal fun MilestoneSheet(
     myUid: String,
     canDelete: Boolean,
     saving: Boolean,
-    onSave: (title: String, assignee: TeamPerson, due: LocalDate?, status: MilestoneStatus) -> Unit,
+    onSave: (title: String, assignee: TeamPerson, due: LocalDate, status: MilestoneStatus) -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -252,7 +254,7 @@ internal fun MilestoneSheet(
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
     val assignee = people.firstOrNull { it.uid == assigneeId } ?: people.firstOrNull { it.uid == myUid } ?: people.firstOrNull()
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    ActionSheet(onDismiss) {
         Column(
             Modifier
                 .navigationBarsPadding()
@@ -286,12 +288,14 @@ internal fun MilestoneSheet(
                 }
             }
             Spacer(Modifier.height(16.dp))
+            // A target date is required (US14); undated milestones from before must get one here.
             DateField(
                 label = stringResource(R.string.milestone_field_due),
                 date = dueEpochDay?.let(LocalDate::ofEpochDay),
                 onDate = { dueEpochDay = it?.toEpochDay() },
-                placeholder = stringResource(R.string.milestone_field_due_none),
-                clearable = true,
+                placeholder = stringResource(R.string.milestone_field_due_choose),
+                supporting = if (dueEpochDay == null) stringResource(R.string.milestone_field_due_required) else null,
+                isError = dueEpochDay == null && milestone != null,
                 earliest = if (milestone == null) Dates.today() else null,
             )
             if (milestone != null) {
@@ -309,9 +313,10 @@ internal fun MilestoneSheet(
             PrimaryButton(
                 text = stringResource(if (milestone == null) R.string.action_add_milestone else R.string.action_save),
                 onClick = {
-                    assignee?.let { onSave(title.trim(), it, dueEpochDay?.let(LocalDate::ofEpochDay), status) }
+                    val due = dueEpochDay?.let(LocalDate::ofEpochDay)
+                    if (assignee != null && due != null) onSave(title.trim(), assignee, due, status)
                 },
-                enabled = title.isNotBlank() && assignee != null,
+                enabled = title.isNotBlank() && assignee != null && dueEpochDay != null,
                 loading = saving,
             )
             if (milestone != null && canDelete) {

@@ -69,7 +69,12 @@ data class DiscoverUiState(
     val wantedSkills: List<String> = emptyList(),
     /** True when nothing at all has been posted yet (as opposed to nothing matching). */
     val feedEmpty: Boolean = false,
+    /** Events by id, so a team request is judged by its event's current dates. */
+    val events: Map<String, Listing> = emptyMap(),
 )
+
+/** The live event a team request is linked to, when it's in [events]. */
+fun Listing.parentIn(events: Map<String, Listing>): Listing? = linkedEvent?.let { events[it.id] }
 
 private sealed interface Feed {
     data object Loading : Feed
@@ -125,6 +130,7 @@ class DiscoverViewModel(
         combine(inputs, controls, session.passport) { input, c, passport ->
             val mySkills = passport?.skills.orEmpty().map { it.name }
             val all = (input.feed as? Feed.Loaded)?.listings.orEmpty()
+            val events = (all + input.savedOutsideFeed).filter { it.kind == ListingKind.Event }.associateBy { it.id }
             DiscoverUiState(
                 loading = input.feed is Feed.Loading,
                 error = (input.feed as? Feed.Failed)?.error,
@@ -133,13 +139,14 @@ class DiscoverViewModel(
                 savedOnly = c.savedOnly,
                 filters = c.filters,
                 sort = c.sort,
-                items = arrange(all, input, c, mySkills),
+                items = arrange(all, input, c, mySkills, events),
                 savedIds = input.savedIds,
                 myApplications = input.myApplications,
                 mySkills = mySkills,
                 myUid = uid,
-                wantedSkills = wantedSkills(all),
+                wantedSkills = wantedSkills(all, events),
                 feedEmpty = input.feed is Feed.Loaded && all.isEmpty(),
+                events = events,
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DiscoverUiState())
 
@@ -162,13 +169,22 @@ class DiscoverViewModel(
         viewModelScope.launch { attempt { saved.setSaved(uid, listingId, save) } }
     }
 
-    private fun arrange(all: List<Listing>, input: Inputs, c: Controls, mySkills: List<String>): List<Listing> {
+    private fun arrange(
+        all: List<Listing>,
+        input: Inputs,
+        c: Controls,
+        mySkills: List<String>,
+        events: Map<String, Listing>,
+    ): List<Listing> {
         val now = Instant.now()
+        fun Listing.closed() = closedReason(now, parentIn(events))
         var list = if (c.savedOnly) {
             (all + input.savedOutsideFeed).distinctBy { it.id }.filter { it.id in input.savedIds }
         } else {
             all
         }
+        // Listings hidden by moderators are gone for everyone but their owner (US20).
+        list = list.filter { !it.hidden || it.ownerId == uid }
         list = list.filter {
             when (c.kind) {
                 KindFilter.All -> true
@@ -179,7 +195,7 @@ class DiscoverViewModel(
         }
         // Saved items always show, closed or not, so they can be found and removed.
         if (!c.filters.includeClosed && !c.savedOnly) {
-            list = list.filter { it.closedReason(now).let { r -> r == null || r == ClosedReason.RegistrationClosed } }
+            list = list.filter { it.closed().let { r -> r == null || r == ClosedReason.RegistrationClosed } }
         }
         val terms = c.query.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
         if (terms.isNotEmpty()) {
@@ -196,11 +212,11 @@ class DiscoverViewModel(
         return when (c.sort) {
             SortOrder.Newest -> list.sortedByDescending { it.createdAt ?: Instant.MAX }
             SortOrder.ClosingSoon -> list.sortedWith(
-                compareBy<Listing> { it.closedReason(now) != null }
+                compareBy<Listing> { it.closed() != null }
                     .thenBy { it.closesAt?.takeIf { d -> d.isAfter(now) } ?: Instant.MAX },
             )
             SortOrder.BestMatch -> list.sortedWith(
-                compareBy<Listing> { it.closedReason(now) != null }
+                compareBy<Listing> { it.closed() != null }
                     .thenByDescending { if (it.ownerId == uid) -1 else SkillMatcher.covered(mySkills, it.skillsWanted).size }
                     .thenByDescending { it.createdAt ?: Instant.MAX },
             )
@@ -219,10 +235,10 @@ class DiscoverViewModel(
         listing.event?.let { append(it.organizer).append(' ').append(it.location).append(' ').append(it.type.key).append(' ') }
     }.lowercase()
 
-    private fun wantedSkills(all: List<Listing>): List<String> {
+    private fun wantedSkills(all: List<Listing>, events: Map<String, Listing>): List<String> {
         val now = Instant.now()
         return all.asSequence()
-            .filter { it.closedReason(now) == null }
+            .filter { !it.hidden && it.closedReason(now, it.parentIn(events)) == null }
             .flatMap { it.skillsWanted.asSequence() }
             .groupBy { SkillMatcher.normalize(it) }
             .entries

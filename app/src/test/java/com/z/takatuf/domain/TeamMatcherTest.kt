@@ -22,7 +22,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
 
-/** US09 to US11: applicant fit and complementary team suggestions (charter §6.4). */
+/** US09 to US11: applicant fit and complementary team suggestions (charter, Technical Environment). */
 class TeamMatcherTest {
     private val now = Instant.parse("2026-10-11T09:00:00Z")
     private val dev = Role("dev", "Mobile developer", skills = listOf("Kotlin", "Firebase", "SQL", "Figma"), openings = 2)

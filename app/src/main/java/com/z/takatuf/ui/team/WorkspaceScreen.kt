@@ -19,6 +19,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -35,15 +36,19 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.toRoute
 import com.z.takatuf.R
 import com.z.takatuf.data.model.Listing
+import com.z.takatuf.data.DraftStore
 import com.z.takatuf.data.model.Milestone
+import com.z.takatuf.data.model.ReportTarget
 import com.z.takatuf.domain.Dates
 import com.z.takatuf.ui.appViewModel
 import com.z.takatuf.ui.common.EmptyState
@@ -54,6 +59,8 @@ import com.z.takatuf.ui.common.SeatRing
 import com.z.takatuf.ui.common.formatDay
 import com.z.takatuf.ui.common.kindLabel
 import com.z.takatuf.ui.common.seatsDescription
+import com.z.takatuf.ui.moderation.ReportLauncher
+import com.z.takatuf.ui.moderation.ReportSubject
 import com.z.takatuf.ui.navigation.WorkspaceRoute
 import com.z.takatuf.ui.theme.TakatufTheme
 
@@ -61,6 +68,7 @@ private enum class WorkspaceTab(val label: Int) {
     Plan(R.string.workspace_tab_plan),
     Updates(R.string.workspace_tab_updates),
     People(R.string.workspace_tab_people),
+    Record(R.string.workspace_tab_record),
 }
 
 /** A team's private space: what's planned, what's been shared, and who does what (US13 to US16). */
@@ -70,9 +78,13 @@ fun WorkspaceScreen(
     onOpenListing: (String) -> Unit,
     onOpenPerson: (String) -> Unit,
     onReviewApplicants: (String) -> Unit,
+    onReviewTeammates: (String) -> Unit,
 ) {
     val viewModel = appViewModel { c, handle: SavedStateHandle ->
-        WorkspaceViewModel(handle.toRoute<WorkspaceRoute>().listingId, c.session, c.listings, c.applications, c.teams, c.workspace)
+        WorkspaceViewModel(
+            handle.toRoute<WorkspaceRoute>().listingId, c.session, c.listings, c.applications, c.teams, c.workspace,
+            c.records, c.notifications, c.drafts,
+        )
     }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
@@ -80,6 +92,7 @@ fun WorkspaceScreen(
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var editing by remember { mutableStateOf<MilestoneEdit?>(null) }
     var composing by rememberSaveable { mutableStateOf(false) }
+    var reporting by remember { mutableStateOf<ReportSubject?>(null) }
     LaunchedEffect(state.left) { if (state.left) onBack() }
     LaunchedEffect(state.done) {
         if (state.done != 0L) {
@@ -110,7 +123,7 @@ fun WorkspaceScreen(
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary,
                     )
-                    WorkspaceTab.People -> Unit
+                    WorkspaceTab.People, WorkspaceTab.Record -> Unit
                 }
             }
         },
@@ -142,14 +155,20 @@ fun WorkspaceScreen(
                     .padding(padding),
             ) {
                 WorkspaceHero(listing, state.outstanding, onBack, onViewListing = { onOpenListing(listing.id) })
-                PrimaryTabRow(selectedTabIndex = tab, containerColor = MaterialTheme.colorScheme.surface) {
+                val tabs: @Composable () -> Unit = {
                     WorkspaceTab.entries.forEachIndexed { index, entry ->
                         Tab(
                             selected = tab == index,
                             onClick = { tab = index },
-                            text = { Text(stringResource(entry.label), style = MaterialTheme.typography.labelLarge) },
+                            text = { Text(stringResource(entry.label), style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false) },
                         )
                     }
+                }
+                // Four tabs fit side by side at normal text sizes; enlarged text scrolls instead of breaking words.
+                if (LocalDensity.current.fontScale > 1.15f) {
+                    PrimaryScrollableTabRow(selectedTabIndex = tab, containerColor = MaterialTheme.colorScheme.surface, edgePadding = 8.dp, tabs = tabs)
+                } else {
+                    PrimaryTabRow(selectedTabIndex = tab, containerColor = MaterialTheme.colorScheme.surface, tabs = tabs)
                 }
                 when (current) {
                     WorkspaceTab.Plan -> PlanTab(
@@ -177,6 +196,18 @@ fun WorkspaceScreen(
                         onDeclineLead = viewModel::declineLead,
                         onRemove = viewModel::removeMember,
                         onLeave = viewModel::leave,
+                        onReport = { person ->
+                            reporting = ReportSubject(ReportTarget.User, person.uid, "profiles/${person.uid}", person.name, person.uid, listing.id)
+                        },
+                    )
+                    WorkspaceTab.Record -> RecordTab(
+                        state = state,
+                        onAdd = viewModel::addContribution,
+                        onEdit = viewModel::editContribution,
+                        onDelete = viewModel::deleteContribution,
+                        onConfirm = viewModel::setConfirmed,
+                        onComplete = viewModel::completeProject,
+                        onReview = { onReviewTeammates(listing.id) },
                     )
                 }
             }
@@ -195,8 +226,10 @@ fun WorkspaceScreen(
             onDismiss = { editing = null },
         )
     }
+    reporting?.let { ReportLauncher(it, snackbar, onDismiss = { reporting = null }) }
     if (composing) {
         UpdateSheet(
+            draftKey = DraftStore.update(listing?.id.orEmpty()),
             posting = state.busy,
             onPost = viewModel::postUpdate,
             onDismiss = { composing = false },
@@ -223,7 +256,8 @@ private fun WorkspaceHero(listing: Listing, outstanding: List<Milestone>, onBack
     ) {
         val recruitment = listing.recruitment
         val people = listing.headcount
-        val open = recruitment?.openPlaces ?: 0
+        // A completed project has stopped recruiting, whatever places were left.
+        val open = if (listing.isCompleted) 0 else recruitment?.openPlaces ?: 0
         Spacer(Modifier.height(16.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             SeatRing(
@@ -244,8 +278,10 @@ private fun WorkspaceHero(listing: Listing, outstanding: List<Milestone>, onBack
                     color = colors.onHero,
                 )
                 val next = outstanding.firstOrNull()
+                val completedAt = listing.completedAt
                 Text(
                     when {
+                        completedAt != null -> stringResource(R.string.complete_done_on, formatDay(Dates.startDate(completedAt)))
                         next == null -> stringResource(R.string.workspace_nothing_due)
                         next.dueDate != null && next.isOverdue(java.time.Instant.now()) ->
                             stringResource(R.string.workspace_next_overdue, next.title, formatDay(Dates.lastDay(next.dueDate)))
@@ -255,6 +291,7 @@ private fun WorkspaceHero(listing: Listing, outstanding: List<Milestone>, onBack
                     style = MaterialTheme.typography.bodyMedium,
                     color = colors.onHeroVariant,
                     maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }

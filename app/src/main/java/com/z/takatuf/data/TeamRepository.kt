@@ -2,11 +2,14 @@ package com.z.takatuf.data
 
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.z.takatuf.data.firebase.awaitTransaction
 import com.z.takatuf.data.firebase.awaitWrite
 import com.z.takatuf.data.firebase.observe
 import com.z.takatuf.data.firebase.toListing
 import com.z.takatuf.data.firebase.toTimestamp
 import com.z.takatuf.data.model.ApplicationStatus
+import com.z.takatuf.data.firebase.toParticipation
+import com.z.takatuf.data.model.ParticipationStatus
 import com.z.takatuf.data.model.Listing
 import com.z.takatuf.data.model.Profile
 import com.z.takatuf.data.model.TeamMember
@@ -38,8 +41,10 @@ class TeamRepository(private val db: FirebaseFirestore) {
         val listingRef = listings.document(listingId)
         val appRef = application(listingId, uid)
         db.runTransaction { tx ->
-            val listing = tx.get(listingRef).toListing() ?: throw AppException(AppError.NotFound)
+            val snapshot = tx.get(listingRef)
+            val listing = snapshot.toListing() ?: throw AppException(AppError.NotFound)
             val app = tx.get(appRef)
+            val record = tx.get(RecordsRepository.participationRef(db, uid, listingId)).toParticipation()
             if (listing.members.none { it.uid == uid }) throw AppException(AppError.PermissionDenied)
             val update = mutableMapOf<String, Any?>(
                 "members.$uid" to FieldValue.delete(),
@@ -47,54 +52,71 @@ class TeamRepository(private val db: FirebaseFirestore) {
                 "teamSize" to (listing.recruitment?.teamSize ?: 2) - 1,
                 "updatedAt" to FieldValue.serverTimestamp(),
             )
+            snapshot.get("members.$uid")?.let { update["formerMembers.$uid"] = it }
             if (listing.pendingLeader?.uid == uid) update["pendingLeader"] = null
             tx.update(listingRef, update)
             if (app.exists() && app.getString("status") == ApplicationStatus.Accepted.key) {
                 tx.update(appRef, mapOf("status" to ApplicationStatus.Left.key, "updatedAt" to FieldValue.serverTimestamp()))
             }
-        }.await()
+            // The passport keeps a record that the student took part and then left (US17).
+            RecordsRepository.endIn(tx, db, uid, listing, ParticipationStatus.Left, record)
+            tx.set(AuditLog.ref(db), AuditLog.entry(AuditLog.Action.MemberLeft, uid, listingId, uid))
+        }.awaitTransaction()
     }
 
     /** The lead removes a member; access to the workspace ends with the same write. */
-    suspend fun removeMember(listingId: String, memberId: String) {
+    suspend fun removeMember(listingId: String, memberId: String, actorUid: String) {
         val listingRef = listings.document(listingId)
         val appRef = application(listingId, memberId)
         db.runTransaction { tx ->
-            val listing = tx.get(listingRef).toListing() ?: throw AppException(AppError.NotFound)
+            val snapshot = tx.get(listingRef)
+            val listing = snapshot.toListing() ?: throw AppException(AppError.NotFound)
             val app = tx.get(appRef)
+            val record = tx.get(RecordsRepository.participationRef(db, memberId, listingId)).toParticipation()
             val update = mutableMapOf<String, Any?>(
                 "members.$memberId" to FieldValue.delete(),
                 "memberIds" to FieldValue.arrayRemove(memberId),
                 "teamSize" to (listing.recruitment?.teamSize ?: 2) - 1,
                 "updatedAt" to FieldValue.serverTimestamp(),
             )
+            snapshot.get("members.$memberId")?.let { update["formerMembers.$memberId"] = it }
             if (listing.pendingLeader?.uid == memberId) update["pendingLeader"] = null
             tx.update(listingRef, update)
             if (app.exists() && app.getString("status") == ApplicationStatus.Accepted.key) {
                 tx.update(appRef, mapOf("status" to ApplicationStatus.Removed.key))
             }
-        }.await()
+            RecordsRepository.endIn(tx, db, memberId, listing, ParticipationStatus.Removed, record)
+            tx.set(AuditLog.ref(db), AuditLog.entry(AuditLog.Action.MemberRemoved, actorUid, listingId, memberId))
+        }.awaitTransaction()
     }
 
     /** The lead nominates a successor; nothing changes until they accept. */
-    suspend fun nominateLead(listingId: String, member: TeamMember) {
-        listings.document(listingId).update(
-            mapOf(
-                "pendingLeader" to mapOf(
-                    "uid" to member.uid,
-                    "name" to member.name,
-                    "requestedAt" to FieldValue.serverTimestamp(),
+    suspend fun nominateLead(listingId: String, member: TeamMember, actorUid: String) {
+        db.batch()
+            .update(
+                listings.document(listingId),
+                mapOf(
+                    "pendingLeader" to mapOf(
+                        "uid" to member.uid,
+                        "name" to member.name,
+                        "requestedAt" to FieldValue.serverTimestamp(),
+                    ),
+                    "updatedAt" to FieldValue.serverTimestamp(),
                 ),
-                "updatedAt" to FieldValue.serverTimestamp(),
-            ),
-        ).awaitWrite()
+            )
+            .set(AuditLog.ref(db), AuditLog.entry(AuditLog.Action.LeadNominated, actorUid, listingId, member.uid))
+            .commit()
+            .awaitWrite()
     }
 
     /** The lead takes the nomination back, or the nominee declines it. */
-    suspend fun clearNomination(listingId: String) {
-        listings.document(listingId)
-            .update(mapOf("pendingLeader" to null, "updatedAt" to FieldValue.serverTimestamp()))
-            .awaitWrite()
+    suspend fun clearNomination(listingId: String, actorUid: String, declinedByNominee: Boolean) {
+        val batch = db.batch()
+            .update(listings.document(listingId), mapOf("pendingLeader" to null, "updatedAt" to FieldValue.serverTimestamp()))
+        if (declinedByNominee) {
+            batch.set(AuditLog.ref(db), AuditLog.entry(AuditLog.Action.LeadDeclined, actorUid, listingId, actorUid))
+        }
+        batch.commit().awaitWrite()
     }
 
     /**
@@ -105,6 +127,7 @@ class TeamRepository(private val db: FirebaseFirestore) {
         val listingRef = listings.document(listingId)
         db.runTransaction { tx ->
             val listing = tx.get(listingRef).toListing() ?: throw AppException(AppError.NotFound)
+            val record = tx.get(RecordsRepository.participationRef(db, me.uid, listingId)).toParticipation()
             if (listing.pendingLeader?.uid != me.uid) throw AppException(AppError.PermissionDenied)
             val previous = listing.ownerId
             val memberIds = listing.memberIds.filter { it != me.uid } + previous
@@ -127,15 +150,31 @@ class TeamRepository(private val db: FirebaseFirestore) {
                     "updatedAt" to FieldValue.serverTimestamp(),
                 ),
             )
-        }.await()
+            // The new lead's record now says they led the team (US17).
+            val member = listing.members.firstOrNull { it.uid == me.uid }
+            tx.set(
+                RecordsRepository.participationRef(db, me.uid, listingId),
+                RecordsRepository.record(
+                    listing,
+                    RecordsRepository.LEAD_ROLE,
+                    wasLead = true,
+                    ParticipationStatus.Active,
+                    startedAt = record?.startedAt ?: member?.joinedAt ?: listing.createdAt ?: Instant.now(),
+                    endedAt = null,
+                ),
+            )
+            tx.set(AuditLog.ref(db), AuditLog.entry(AuditLog.Action.LeadAccepted, me.uid, listingId, listing.ownerId))
+        }.awaitTransaction()
         adoptApplications(listingId, me.uid)
     }
 
     /**
      * Points every application at the new lead, so their Activity tab lists them. Applicants
      * shared their passport with this listing's lead, so the new lead takes over that access too.
+     * Also run whenever the lead opens the applicants, in case this step didn't finish after
+     * the handover (US22). The previous lead's passport access ends with the handover itself.
      */
-    private suspend fun adoptApplications(listingId: String, uid: String) {
+    suspend fun adoptApplications(listingId: String, uid: String) {
         val apps = attempt {
             listings.document(listingId).collection(ApplicationRepository.APPLICATIONS).get().await().documents
         }.getOrNull() ?: return
@@ -161,7 +200,7 @@ class TeamRepository(private val db: FirebaseFirestore) {
      * Reopens [places] places for a role without touching the workspace. Applicants who weren't
      * picked must confirm they're still interested before they're considered again.
      */
-    suspend fun reopenPlaces(listing: Listing, roleId: String, places: Int, reconfirm: Collection<String>) {
+    suspend fun reopenPlaces(listing: Listing, roleId: String, places: Int, reconfirm: Collection<String>, actorUid: String) {
         val recruitment = listing.recruitment ?: return
         val roles = recruitment.roles.map { role ->
             mapOf(
@@ -180,9 +219,13 @@ class TeamRepository(private val db: FirebaseFirestore) {
             "updatedAt" to FieldValue.serverTimestamp(),
         )
         // A passed deadline would keep the reopened place shut.
-        if (recruitment.deadline?.isBefore(Instant.now()) == true) update["deadline"] = null
+        if (recruitment.deadline?.let { !Instant.now().isBefore(it) } == true) update["deadline"] = null
         val batch = db.batch()
         batch.update(listings.document(listing.id), update)
+        batch.set(
+            AuditLog.ref(db),
+            AuditLog.entry(AuditLog.Action.PlaceReopened, actorUid, listing.id, detail = "$places place(s) for $roleId; ${reconfirm.size} asked to reconfirm"),
+        )
         reconfirm.forEach { id ->
             batch.update(
                 application(listing.id, id),

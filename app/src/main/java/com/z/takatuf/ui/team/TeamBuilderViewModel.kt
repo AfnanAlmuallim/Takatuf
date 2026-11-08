@@ -6,11 +6,14 @@ import com.z.takatuf.R
 import com.z.takatuf.data.AppError
 import com.z.takatuf.data.ApplicationRepository
 import com.z.takatuf.data.ListingRepository
+import com.z.takatuf.data.NotificationRepository
 import com.z.takatuf.data.ProfileRepository
 import com.z.takatuf.data.Session
 import com.z.takatuf.data.attempt
 import com.z.takatuf.data.model.Application
 import com.z.takatuf.data.model.Listing
+import com.z.takatuf.data.model.NotificationTarget
+import com.z.takatuf.data.model.NotificationType
 import com.z.takatuf.data.toAppError
 import com.z.takatuf.domain.ApplicantFit
 import com.z.takatuf.domain.Recommendation
@@ -81,6 +84,7 @@ class TeamBuilderViewModel(
     listings: ListingRepository,
     private val applications: ApplicationRepository,
     profiles: ProfileRepository,
+    private val notifications: NotificationRepository,
 ) : ViewModel() {
 
     private val retry = MutableStateFlow(0)
@@ -96,7 +100,7 @@ class TeamBuilderViewModel(
     }
 
     private val data = retry.flatMapLatest {
-        combine(listings.observe(listingId), applications.observeForListing(listingId)) { listing, apps ->
+        combine(listings.observeWithLiveEvent(listingId), applications.observeForListing(listingId)) { listing, apps ->
             Data.Loaded(listing, apps) as Data
         }
             .onEach {
@@ -167,17 +171,30 @@ class TeamBuilderViewModel(
 
     fun sendOffers(days: Int) {
         val ids = state.value.toOffer.map { it.applicantId }
+        // The audit log keeps which recommendation the offers came from (US22).
+        val detail = state.value.option?.let {
+            "recommendation: ${it.strategy.name.lowercase()}, covers ${it.covered.size} of ${it.needed.size} skills"
+        }.orEmpty()
+        send(ids, days, detail, java.util.UUID.randomUUID().toString())
+    }
+
+    private fun send(ids: List<String>, days: Int, detail: String, actionId: String) {
         if (ids.isEmpty() || extras.value.sending) return
         extras.update { it.copy(sending = true) }
         viewModelScope.launch {
-            val result = attempt { applications.sendOffers(listingId, ids, days) }
+            val result = attempt { applications.sendOffers(listingId, ids, days, uid, detail) }
+            val me = session.profile
+            if (result.isSuccess && me != null) {
+                val title = state.value.listing?.title.orEmpty()
+                notifications.send(actionId, ids, NotificationType.OfferReceived, listingId, title, me.uid, me.displayName, NotificationTarget.Listing)
+            }
             extras.update {
                 it.copy(
                     sending = false,
                     sentAt = if (result.isSuccess) System.nanoTime() else it.sentAt,
                     message = result.fold(
                         onSuccess = { UserMessage(R.string.msg_offers_sent) },
-                        onFailure = { e -> UserMessage(e.toAppError().message) },
+                        onFailure = { e -> UserMessage(e.toAppError().message, retry = { send(ids, days, detail, actionId) }) },
                     ),
                 )
             }

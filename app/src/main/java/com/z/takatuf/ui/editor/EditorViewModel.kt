@@ -4,7 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.z.takatuf.data.AiRepository
 import com.z.takatuf.data.AppError
+import com.z.takatuf.data.ApplicationRepository
+import com.z.takatuf.data.DraftStore
 import com.z.takatuf.data.ListingRepository
+import com.z.takatuf.data.NotificationRepository
 import com.z.takatuf.data.RoleTemplate
 import com.z.takatuf.data.Session
 import com.z.takatuf.data.attempt
@@ -16,18 +19,27 @@ import com.z.takatuf.data.model.LinkedEvent
 import com.z.takatuf.data.model.Listing
 import com.z.takatuf.data.model.ListingKind
 import com.z.takatuf.data.model.ListingStatus
+import com.z.takatuf.data.model.NotificationTarget
+import com.z.takatuf.data.model.NotificationType
 import com.z.takatuf.data.model.Recruitment
 import com.z.takatuf.data.model.Role
 import com.z.takatuf.data.model.RoleSuggestion
 import com.z.takatuf.data.toAppError
 import com.z.takatuf.domain.Dates
 import com.z.takatuf.domain.Validators
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
 import java.time.Instant
 import java.time.LocalDate
 import java.util.UUID
@@ -82,6 +94,8 @@ data class EditorUiState(
     val error: AppError? = null,
     /** Set once saved, so the screen can move on. */
     val savedId: String? = null,
+    /** The form was filled from a draft kept on this device (US21). */
+    val draftRestored: Boolean = false,
 ) {
     val isEditing: Boolean get() = editingId != null
     val openPlaces: Int get() = roles.sumOf { it.openings }
@@ -104,6 +118,9 @@ class EditorViewModel(
     private val ai: AiRepository,
     /** Suggested title for a team request, e.g. "Team for <event>", from string resources. */
     private val teamTitleFor: (eventTitle: String) -> String,
+    private val applications: ApplicationRepository,
+    private val notifications: NotificationRepository,
+    private val drafts: DraftStore,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(
@@ -111,8 +128,22 @@ class EditorViewModel(
     )
     val state: StateFlow<EditorUiState> = _state.asStateFlow()
 
+    /** The listing as it was before editing, to tell who needs to hear about a change. */
+    private var original: Listing? = null
+
+    /** New listings keep a draft on the device until they are published (US21). */
+    private val draftKey = DraftStore.listing(kind.key, null) + eventId?.let { "_$it" }.orEmpty()
+
     init {
-        if (listingId != null) load(listingId)
+        if (listingId != null) load(listingId) else restoreDraft()
+        if (listingId == null) {
+            viewModelScope.launch {
+                _state.map { draftValues(it) }.distinctUntilChanged().collectLatest { values ->
+                    delay(400)
+                    if (_state.value.savedId == null) drafts.save(draftKey, values)
+                }
+            }
+        }
         if (kind == ListingKind.Team) {
             viewModelScope.launch {
                 listings.observeFeed()
@@ -137,6 +168,7 @@ class EditorViewModel(
                 _state.update { it.copy(loading = false, error = AppError.NotFound) }
                 return@launch
             }
+            original = listing
             val linkedEvent = listing.linkedEvent?.let { attempt { listings.get(it.id) }.getOrNull() }
             _state.update { s ->
                 val r = listing.recruitment
@@ -280,10 +312,131 @@ class EditorViewModel(
                     listings.create(listing)
                 }
             }.onSuccess { id ->
+                if (s.editingId == null) drafts.clear(draftKey)
+                original?.let { before -> tellAboutChange(before, listing.copy(id = id)) }
                 _state.update { it.copy(saving = false, savedId = id) }
             }.onFailure { e ->
                 _state.update { it.copy(saving = false, error = e.toAppError()) }
             }
+        }
+    }
+
+    /** Starts the form again from empty, dropping the saved draft. */
+    fun discardDraft() {
+        drafts.clear(draftKey)
+        _state.update { s ->
+            EditorUiState(kind = s.kind, aiAvailable = s.aiAvailable, events = s.events, event = s.event)
+                .let { fresh -> s.event?.let { fresh.copy(title = teamTitleFor(it.title)) } ?: fresh }
+        }
+    }
+
+    /**
+     * Lets the people affected know when an owner changes something that matters to them (US19):
+     * applicants and members hear about a team's changed terms, and the teams entered for an
+     * event hear about its changed dates or rules. Best effort; the edit is already saved.
+     */
+    private fun tellAboutChange(before: Listing, after: Listing) {
+        val me = session.profile ?: return
+        viewModelScope.launch {
+            val actionId = UUID.randomUUID().toString()
+            if (after.kind == ListingKind.Event && eventChanged(before, after)) {
+                val teams = attempt { listings.observeTeamsFor(after.id).first() }.getOrDefault(emptyList())
+                teams.filter { !it.isCompleted }.forEach { team ->
+                    notifications.send(
+                        "${actionId}_${team.id}", listOf(team.ownerId) + team.memberIds, NotificationType.EventChanged,
+                        team.id, team.title, me.uid, me.displayName, NotificationTarget.Listing, targetId = after.id,
+                    )
+                }
+            } else if (after.kind.recruits && termsChanged(before, after)) {
+                val active = attempt { applications.observeForListing(after.id).first() }.getOrDefault(emptyList())
+                    .filter { it.status.isActive }.map { it.applicantId }
+                notifications.send(
+                    actionId, before.memberIds + active, NotificationType.ListingChanged,
+                    after.id, after.title, me.uid, me.displayName, NotificationTarget.Listing,
+                )
+            }
+        }
+    }
+
+    private fun eventChanged(before: Listing, after: Listing): Boolean {
+        val a = before.event ?: return false
+        val b = after.event ?: return false
+        return a.startDate != b.startDate || a.endDate != b.endDate || a.registrationDeadline != b.registrationDeadline ||
+            a.teamSizeMin != b.teamSizeMin || a.teamSizeMax != b.teamSizeMax || a.eligibility != b.eligibility ||
+            a.eligibleLevel != b.eligibleLevel || a.format != b.format || a.location != b.location
+    }
+
+    private fun termsChanged(before: Listing, after: Listing): Boolean {
+        val a = before.recruitment ?: return false
+        val b = after.recruitment ?: return false
+        fun Role.terms() = Triple(title, skills, openings)
+        return a.deadline != b.deadline || a.hoursPerWeek != b.hoursPerWeek || a.duration != b.duration ||
+            a.outcome != b.outcome || a.roles.map { it.terms() } != b.roles.map { it.terms() } ||
+            before.title != after.title
+    }
+
+    private fun draftValues(s: EditorUiState): Map<String, String> {
+        val written = listOf(s.title, s.description, s.outcome, s.organizer, s.eligibility).any { it.isNotBlank() } || s.roles.isNotEmpty()
+        // Only worth keeping once something has been written; the defaults alone aren't a draft.
+        if (!written || s.savedId != null) return emptyMap()
+        val roles = JSONArray(
+            s.roles.map {
+                JSONObject().put("id", it.id).put("title", it.title).put("description", it.description)
+                    .put("skills", JSONArray(it.skills)).put("openings", it.openings)
+            },
+        )
+        return mapOf(
+            "title" to s.title, "description" to s.description, "outcome" to s.outcome, "duration" to s.duration,
+            "hours" to s.hoursPerWeek.toString(), "teamSize" to s.teamSize.toString(), "roles" to roles.toString(),
+            "deadline" to s.deadline?.toString().orEmpty(), "organizer" to s.organizer, "sourceUrl" to s.sourceUrl,
+            "eligibility" to s.eligibility, "location" to s.location, "start" to s.startDate?.toString().orEmpty(),
+            "end" to s.endDate?.toString().orEmpty(), "registration" to s.registrationDeadline?.toString().orEmpty(),
+            "eventType" to s.eventType.name, "format" to s.format.name, "level" to s.eligibleLevel.name,
+            "sizeMin" to s.teamSizeMin.toString(), "sizeMax" to s.teamSizeMax.toString(),
+        )
+    }
+
+    private fun restoreDraft() {
+        val d = drafts.load(draftKey) ?: return
+        fun date(key: String) = d[key]?.takeIf { it.isNotBlank() }?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+        val roles = runCatching {
+            val array = JSONArray(d["roles"].orEmpty().ifBlank { "[]" })
+            (0 until array.length()).map { i ->
+                val o = array.getJSONObject(i)
+                val skills = o.optJSONArray("skills") ?: JSONArray()
+                Role(
+                    id = o.optString("id").ifBlank { newId() },
+                    title = o.optString("title"),
+                    description = o.optString("description"),
+                    skills = (0 until skills.length()).map { skills.getString(it) },
+                    openings = o.optInt("openings", 1),
+                )
+            }
+        }.getOrDefault(emptyList())
+        _state.update { s ->
+            s.copy(
+                title = d["title"].orEmpty().ifBlank { s.title },
+                description = d["description"].orEmpty(),
+                outcome = d["outcome"].orEmpty(),
+                duration = d["duration"].orEmpty(),
+                hoursPerWeek = d["hours"]?.toIntOrNull() ?: s.hoursPerWeek,
+                teamSize = d["teamSize"]?.toIntOrNull() ?: s.teamSize,
+                roles = roles,
+                deadline = date("deadline"),
+                organizer = d["organizer"].orEmpty(),
+                sourceUrl = d["sourceUrl"].orEmpty(),
+                eligibility = d["eligibility"].orEmpty(),
+                location = d["location"].orEmpty(),
+                startDate = date("start"),
+                endDate = date("end"),
+                registrationDeadline = date("registration"),
+                eventType = EventType.entries.firstOrNull { it.name == d["eventType"] } ?: s.eventType,
+                format = EventFormat.entries.firstOrNull { it.name == d["format"] } ?: s.format,
+                eligibleLevel = EligibleLevel.entries.firstOrNull { it.name == d["level"] } ?: s.eligibleLevel,
+                teamSizeMin = d["sizeMin"]?.toIntOrNull() ?: s.teamSizeMin,
+                teamSizeMax = d["sizeMax"]?.toIntOrNull() ?: s.teamSizeMax,
+                draftRestored = true,
+            )
         }
     }
 
@@ -298,6 +451,7 @@ class EditorViewModel(
                     val event = s.event?.event
                     if (event == null) add(Field.Event)
                     else if (s.teamSize + s.openPlaces > event.teamSizeMax) add(Field.TeamSize)
+                    else if (s.teamSize + s.openPlaces < event.teamSizeMin) add(Field.TeamSize)
                 }
                 if (s.teamSize < s.minTeamSize) add(Field.TeamSize)
                 if (s.deadline != null && s.deadline.isBefore(today) && !s.isEditing) add(Field.Deadline)

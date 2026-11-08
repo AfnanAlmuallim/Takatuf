@@ -78,7 +78,7 @@ fun ApplicantsScreen(
     onBuildTeam: (String) -> Unit,
 ) {
     val viewModel = appViewModel { c, handle: SavedStateHandle ->
-        ApplicantsViewModel(handle.toRoute<ApplicantsRoute>().listingId, c.session, c.listings, c.applications, c.profiles)
+        ApplicantsViewModel(handle.toRoute<ApplicantsRoute>().listingId, c.session, c.listings, c.applications, c.profiles, c.teams)
     }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }

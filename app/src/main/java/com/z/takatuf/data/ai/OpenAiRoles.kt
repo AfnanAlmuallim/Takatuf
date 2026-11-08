@@ -6,7 +6,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * The OpenAI Responses API request and response for role suggestions (charter §6.4). The model
+ * The OpenAI Responses API request and response for role suggestions (charter, Technical Environment). The model
  * only interprets what the student wrote; it never ranks people or invents project ideas.
  */
 object OpenAiRoles {

@@ -9,9 +9,8 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
+import com.z.takatuf.ui.common.ActionSheet
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -42,7 +41,7 @@ fun OfferSheet(
     onDismiss: () -> Unit,
 ) {
     var days by rememberSaveable { mutableIntStateOf(3) }
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    ActionSheet(onDismiss) {
         Column(
             Modifier
                 .navigationBarsPadding()

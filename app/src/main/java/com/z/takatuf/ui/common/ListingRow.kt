@@ -64,8 +64,10 @@ fun ListingRow(
     myApplication: ApplicationStatus? = null,
     isOwn: Boolean = false,
     startPadding: Dp = 16.dp,
+    /** The live event a team request is linked to, whose current dates decide if it's over. */
+    parentEvent: Listing? = null,
 ) {
-    val closed = listing.closedReason(now)
+    val closed = listing.closedReason(now, parentEvent)
     val muted = closed != null && closed != ClosedReason.RegistrationClosed
     Row(
         modifier = modifier
@@ -93,7 +95,7 @@ fun ListingRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 KindLabel(listing, Modifier.weight(1f, fill = false))
                 Spacer(Modifier.width(8.dp))
-                RowStateTag(closed, myApplication, isOwn)
+                RowStateTag(closed, myApplication, isOwn, flagged = listing.flag != null)
             }
             Spacer(Modifier.height(4.dp))
             Text(
@@ -135,7 +137,7 @@ fun ListingRow(
 }
 
 @Composable
-private fun RowStateTag(closed: ClosedReason?, myApplication: ApplicationStatus?, isOwn: Boolean) {
+private fun RowStateTag(closed: ClosedReason?, myApplication: ApplicationStatus?, isOwn: Boolean, flagged: Boolean) {
     when {
         isOwn -> Tag(stringResource(R.string.tag_yours), tone = TagTone.Quiet)
         myApplication == ApplicationStatus.Accepted -> Tag(stringResource(R.string.status_joined), tone = TagTone.Accent)
@@ -144,6 +146,8 @@ private fun RowStateTag(closed: ClosedReason?, myApplication: ApplicationStatus?
         myApplication == ApplicationStatus.Shortlisted -> Tag(stringResource(R.string.status_shortlisted), tone = TagTone.Accent)
         myApplication == ApplicationStatus.Submitted -> Tag(stringResource(R.string.tag_applied), tone = TagTone.Accent)
         closed != null -> Tag(closedLabel(closed), tone = TagTone.Quiet)
+        // A moderator thinks the details may be out of date (R6).
+        flagged -> Tag(stringResource(R.string.tag_flagged), tone = TagTone.Quiet)
     }
 }
 
@@ -156,6 +160,8 @@ fun closedLabel(reason: ClosedReason): String = stringResource(
         ClosedReason.Ended -> R.string.closed_ended_short
         ClosedReason.RegistrationClosed -> R.string.closed_registration_short
         ClosedReason.Full -> R.string.closed_full_short
+        ClosedReason.Completed -> R.string.closed_completed_short
+        ClosedReason.Hidden -> R.string.closed_hidden_short
     },
 )
 
@@ -221,7 +227,7 @@ private fun RowFacts(listing: Listing, now: Instant, closed: ClosedReason?, mySk
 /** "Closes Oct 30", or a saffron "Closes in 2 days" when it is close. */
 @Composable
 fun DeadlineFact(deadline: Instant?, now: Instant) {
-    if (deadline == null || deadline.isBefore(now)) return
+    if (deadline == null || !now.isBefore(deadline)) return
     val daysLeft = Dates.daysLeft(deadline)
     if (daysLeft <= 3) {
         val text = when (daysLeft) {

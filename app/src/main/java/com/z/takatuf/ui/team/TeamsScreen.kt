@@ -47,6 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.z.takatuf.R
+import com.z.takatuf.ui.notifications.TabTitle
 import com.z.takatuf.data.model.Listing
 import com.z.takatuf.ui.appViewModel
 import com.z.takatuf.ui.common.AnswerCard
@@ -67,8 +68,9 @@ import com.z.takatuf.ui.common.seatsDescription
 fun TeamsScreen(
     onOpenTeam: (String) -> Unit,
     onDiscover: () -> Unit,
+    onInbox: () -> Unit,
 ) {
-    val viewModel = appViewModel { c, _ -> TeamsViewModel(c.session, c.listings, c.teams) }
+    val viewModel = appViewModel { c, _ -> TeamsViewModel(c.session, c.listings, c.teams, c.notifications) }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     MessageEffect(state.message, snackbar, viewModel::messageShown)
@@ -80,14 +82,7 @@ fun TeamsScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            Text(
-                text = stringResource(R.string.tab_teams),
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier
-                    .padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 8.dp)
-                    .semantics { heading() },
-            )
+            TabTitle(stringResource(R.string.tab_teams), onInbox)
             when {
                 state.loading -> LoadingRows()
                 state.error != null -> ErrorState(state.error!!, viewModel::retry)

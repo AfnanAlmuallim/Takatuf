@@ -5,6 +5,7 @@ import com.google.firebase.firestore.FieldValue
 import com.z.takatuf.data.model.Application
 import com.z.takatuf.data.model.ApplicationStatus
 import com.z.takatuf.data.model.Availability
+import com.z.takatuf.data.model.Completion
 import com.z.takatuf.data.model.Deliverable
 import com.z.takatuf.data.model.EligibleLevel
 import com.z.takatuf.data.model.EventDetails
@@ -14,6 +15,7 @@ import com.z.takatuf.data.model.EvidenceLink
 import com.z.takatuf.data.model.Experience
 import com.z.takatuf.data.model.LinkedEvent
 import com.z.takatuf.data.model.Listing
+import com.z.takatuf.data.model.ListingFlag
 import com.z.takatuf.data.model.ListingKind
 import com.z.takatuf.data.model.ListingStatus
 import com.z.takatuf.data.model.Milestone
@@ -184,22 +186,31 @@ internal fun DocumentSnapshot.toListing(): Listing? {
         recruitment = recruitment,
         linkedEvent = linkedEvent,
         event = event,
-        members = (f["members"] as? Map<*, *>).orEmpty().mapNotNull { (uid, value) ->
-            val m = value as? Map<*, *> ?: return@mapNotNull null
-            TeamMember(
-                uid = uid as? String ?: return@mapNotNull null,
-                name = m.str("name"),
-                major = m.str("major"),
-                roleId = m.str("roleId"),
-                roleTitle = m.str("roleTitle"),
-                joinedAt = m.instant("joinedAt"),
-            )
-        }.sortedBy { it.joinedAt },
+        members = f.teamMembers("members"),
+        formerMembers = f.teamMembers("formerMembers"),
         pendingLeader = f.map("pendingLeader")?.let {
             PendingLeader(uid = it.str("uid"), name = it.str("name"), requestedAt = it.instant("requestedAt"))
         }?.takeIf { it.uid.isNotEmpty() },
+        completedAt = f.instant("completedAt"),
+        completion = f.map("completion")?.let { Completion(summary = it.str("summary"), link = it.str("link")) },
+        hidden = f.bool("hidden"),
+        flag = f.map("flag")?.let { ListingFlag(reason = it.str("reason"), at = it.instant("at")) },
+        moderationNote = f.str("moderationNote"),
     )
 }
+
+private fun Map<*, *>.teamMembers(key: String): List<TeamMember> =
+    (this[key] as? Map<*, *>).orEmpty().mapNotNull { (uid, value) ->
+        val m = value as? Map<*, *> ?: return@mapNotNull null
+        TeamMember(
+            uid = uid as? String ?: return@mapNotNull null,
+            name = m.str("name"),
+            major = m.str("major"),
+            roleId = m.str("roleId"),
+            roleTitle = m.str("roleTitle"),
+            joinedAt = m.instant("joinedAt"),
+        )
+    }.sortedBy { it.joinedAt }
 
 /**
  * Fields written when a listing is created or edited. Ownership and creation time are added
@@ -310,6 +321,7 @@ internal fun DocumentSnapshot.toMilestone(): Milestone? {
         createdBy = f.str("createdBy"),
         completedAt = f.instant("completedAt"),
         updatedAt = f.instant("updatedAt"),
+        pending = metadata.hasPendingWrites(),
     )
 }
 
@@ -323,6 +335,7 @@ internal fun DocumentSnapshot.toTeamUpdate(): TeamUpdate? {
         text = f.str("text"),
         link = f.str("link"),
         createdAt = f.instant("createdAt"),
+        pending = metadata.hasPendingWrites(),
     )
 }
 
@@ -336,5 +349,6 @@ internal fun DocumentSnapshot.toDeliverable(): Deliverable? {
         addedBy = f.str("addedBy"),
         addedByName = f.str("addedByName"),
         createdAt = f.instant("createdAt"),
+        pending = metadata.hasPendingWrites(),
     )
 }

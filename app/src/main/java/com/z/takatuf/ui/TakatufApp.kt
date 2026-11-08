@@ -8,12 +8,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.z.takatuf.TakatufApplication
 import com.z.takatuf.data.SessionState
 import com.z.takatuf.ui.auth.AuthScreen
+import com.z.takatuf.ui.common.SyncBanner
 import com.z.takatuf.ui.navigation.TakatufNavHost
 import com.z.takatuf.ui.onboarding.OnboardingScreen
 import kotlinx.coroutines.flow.Flow
@@ -35,7 +37,11 @@ fun TakatufApp(newIntents: Flow<Intent>) {
             Screen.Auth -> AuthScreen()
             Screen.Onboarding -> (session as? SessionState.Onboarding)?.let { OnboardingScreen(it) }
                 ?: Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface))
-            Screen.Main -> TakatufNavHost(newIntents)
+            Screen.Main -> Box(Modifier.fillMaxSize()) {
+                TakatufNavHost(newIntents)
+                // Pending, sent and refused changes, above every screen (US21).
+                SyncBanner(Modifier.align(Alignment.TopCenter))
+            }
         }
     }
 }

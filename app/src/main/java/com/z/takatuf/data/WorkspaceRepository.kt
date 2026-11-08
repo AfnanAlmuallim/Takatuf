@@ -1,5 +1,6 @@
 package com.z.takatuf.data
 
+import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
@@ -14,6 +15,7 @@ import com.z.takatuf.data.model.Milestone
 import com.z.takatuf.data.model.MilestoneStatus
 import com.z.takatuf.data.model.TeamUpdate
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.tasks.await
 import java.time.Instant
 
 /**
@@ -23,6 +25,10 @@ import java.time.Instant
  */
 class WorkspaceRepository(private val db: FirebaseFirestore) {
 
+    /** True when an earlier attempt already reached the server. */
+    private suspend fun alreadySaved(ref: DocumentReference): Boolean =
+        attempt { ref.get().await().exists() }.getOrDefault(false)
+
     private fun listing(listingId: String) = db.collection(ListingRepository.LISTINGS).document(listingId)
     private fun milestones(listingId: String) = listing(listingId).collection(MILESTONES)
     private fun updates(listingId: String) = listing(listingId).collection(UPDATES)
@@ -30,15 +36,15 @@ class WorkspaceRepository(private val db: FirebaseFirestore) {
     private fun responsibilities(listingId: String) = listing(listingId).collection(RESPONSIBILITIES)
 
     fun observeMilestones(listingId: String): Flow<List<Milestone>> =
-        milestones(listingId).observe { snapshot -> snapshot.documents.mapNotNull { it.toMilestone() } }
+        milestones(listingId).observe(includeMetadata = true) { snapshot -> snapshot.documents.mapNotNull { it.toMilestone() } }
 
     fun observeUpdates(listingId: String): Flow<List<TeamUpdate>> =
         updates(listingId).orderBy("createdAt", Query.Direction.DESCENDING).limit(100)
-            .observe { snapshot -> snapshot.documents.mapNotNull { it.toTeamUpdate() } }
+            .observe(includeMetadata = true) { snapshot -> snapshot.documents.mapNotNull { it.toTeamUpdate() } }
 
     fun observeDeliverables(listingId: String): Flow<List<Deliverable>> =
         deliverables(listingId).orderBy("createdAt", Query.Direction.DESCENDING)
-            .observe { snapshot -> snapshot.documents.mapNotNull { it.toDeliverable() } }
+            .observe(includeMetadata = true) { snapshot -> snapshot.documents.mapNotNull { it.toDeliverable() } }
 
     /** Each member's responsibility, keyed by uid. */
     fun observeResponsibilities(listingId: String): Flow<Map<String, String>> =
@@ -46,20 +52,27 @@ class WorkspaceRepository(private val db: FirebaseFirestore) {
             snapshot.documents.associate { it.id to (it.getString("text") ?: "") }
         }
 
+    /**
+     * Adds a milestone under an id the caller chose, so retrying after a lost connection writes
+     * the same milestone rather than a second one (US21). The same goes for updates and links.
+     */
     suspend fun addMilestone(
+        id: String,
         listingId: String,
         createdBy: String,
         title: String,
         assigneeId: String,
         assigneeName: String,
-        dueDate: Instant?,
+        dueDate: Instant,
     ) {
-        milestones(listingId).document().set(
+        val ref = milestones(listingId).document(id)
+        if (alreadySaved(ref)) return
+        ref.set(
             mapOf(
                 "title" to title.trim(),
                 "assigneeId" to assigneeId,
                 "assigneeName" to assigneeName,
-                "dueDate" to dueDate?.toTimestamp(),
+                "dueDate" to dueDate.toTimestamp(),
                 "status" to MilestoneStatus.Todo.key,
                 "createdBy" to createdBy,
                 "createdAt" to FieldValue.serverTimestamp(),
@@ -75,14 +88,14 @@ class WorkspaceRepository(private val db: FirebaseFirestore) {
         title: String,
         assigneeId: String,
         assigneeName: String,
-        dueDate: Instant?,
+        dueDate: Instant,
     ) {
         milestones(listingId).document(milestoneId).update(
             mapOf(
                 "title" to title.trim(),
                 "assigneeId" to assigneeId,
                 "assigneeName" to assigneeName,
-                "dueDate" to dueDate?.toTimestamp(),
+                "dueDate" to dueDate.toTimestamp(),
                 "updatedAt" to FieldValue.serverTimestamp(),
             ),
         ).awaitWrite()
@@ -102,8 +115,10 @@ class WorkspaceRepository(private val db: FirebaseFirestore) {
         milestones(listingId).document(milestoneId).delete().awaitWrite()
     }
 
-    suspend fun postUpdate(listingId: String, authorId: String, authorName: String, text: String, link: String) {
-        updates(listingId).document().set(
+    suspend fun postUpdate(id: String, listingId: String, authorId: String, authorName: String, text: String, link: String) {
+        val ref = updates(listingId).document(id)
+        if (alreadySaved(ref)) return
+        ref.set(
             mapOf(
                 "authorId" to authorId,
                 "authorName" to authorName,
@@ -118,8 +133,10 @@ class WorkspaceRepository(private val db: FirebaseFirestore) {
         updates(listingId).document(updateId).delete().awaitWrite()
     }
 
-    suspend fun addDeliverable(listingId: String, addedBy: String, addedByName: String, label: String, url: String) {
-        deliverables(listingId).document().set(
+    suspend fun addDeliverable(id: String, listingId: String, addedBy: String, addedByName: String, label: String, url: String) {
+        val ref = deliverables(listingId).document(id)
+        if (alreadySaved(ref)) return
+        ref.set(
             mapOf(
                 "label" to label.trim(),
                 "url" to url.trim(),

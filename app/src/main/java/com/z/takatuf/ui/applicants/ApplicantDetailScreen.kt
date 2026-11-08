@@ -91,7 +91,7 @@ import java.time.Instant
 fun ApplicantDetailScreen(onBack: () -> Unit) {
     val viewModel = appViewModel { c, handle: SavedStateHandle ->
         val route = handle.toRoute<ApplicantRoute>()
-        ApplicantDetailViewModel(route.listingId, route.applicantId, c.session, c.listings, c.applications, c.profiles)
+        ApplicantDetailViewModel(route.listingId, route.applicantId, c.session, c.listings, c.applications, c.profiles, c.notifications)
     }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
@@ -99,6 +99,7 @@ fun ApplicantDetailScreen(onBack: () -> Unit) {
     val application = state.application
     var showOffer by rememberSaveable { mutableStateOf(false) }
     var confirmCancel by rememberSaveable { mutableStateOf(false) }
+    var confirmNotSelected by rememberSaveable { mutableStateOf(false) }
 
     // The sheet closes once the offer is out.
     LaunchedEffect(state.done) { if (state.done != 0L) showOffer = false }
@@ -125,6 +126,7 @@ fun ApplicantDetailScreen(onBack: () -> Unit) {
                         onShortlist = viewModel::setShortlisted,
                         onOffer = { showOffer = true },
                         onCancelOffer = { confirmCancel = true },
+                        onNotSelected = { confirmNotSelected = true },
                     )
                 }
             }
@@ -229,6 +231,19 @@ fun ApplicantDetailScreen(onBack: () -> Unit) {
             onDismiss = { showOffer = false },
         )
     }
+    if (confirmNotSelected && application != null) {
+        AlertDialog(
+            onDismissRequest = { confirmNotSelected = false },
+            title = { Text(stringResource(R.string.not_selected_title, application.applicantName)) },
+            text = { Text(stringResource(R.string.not_selected_body, application.applicantName)) },
+            confirmButton = {
+                TextButton(onClick = { confirmNotSelected = false; viewModel.notSelected() }) {
+                    Text(stringResource(R.string.action_not_selected))
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmNotSelected = false }) { Text(stringResource(R.string.action_cancel)) } },
+        )
+    }
     if (confirmCancel && application != null) {
         AlertDialog(
             onDismissRequest = { confirmCancel = false },
@@ -255,6 +270,7 @@ private fun FitBreakdown(fit: ApplicantFit, name: String, listing: Listing?) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         FitBadge(fit)
         FitFacts(fit)
+        Text(stringResource(R.string.fit_how), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (fit.bringsToTeam.isNotEmpty()) {
             Row(verticalAlignment = Alignment.Top) {
                 Icon(
@@ -307,6 +323,7 @@ private fun ColumnScope.DecisionBar(
     onShortlist: (Boolean) -> Unit,
     onOffer: () -> Unit,
     onCancelOffer: () -> Unit,
+    onNotSelected: () -> Unit,
 ) {
     val now = Instant.now()
     val role = listing?.recruitment?.roles?.firstOrNull { it.id == application.roleId }
@@ -334,6 +351,9 @@ private fun ColumnScope.DecisionBar(
             BarNote(
                 if (hasPlace) stringResource(R.string.offer_note) else stringResource(R.string.offer_no_place, application.roleTitle),
             )
+            TextButton(onClick = onNotSelected, enabled = !busy, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                Text(stringResource(R.string.action_not_selected))
+            }
         }
         ApplicationStatus.Offered -> if (application.offerExpired(now)) {
             PrimaryButton(
@@ -370,6 +390,8 @@ private fun ColumnScope.DecisionBar(
         ApplicationStatus.Withdrawn -> BarNote(stringResource(R.string.applicant_withdrew, relativeTime(application.updatedAt)))
         ApplicationStatus.Left -> BarNote(stringResource(R.string.applicant_left, relativeTime(application.updatedAt)))
         ApplicationStatus.Removed -> BarNote(stringResource(R.string.applicant_removed))
+        ApplicationStatus.Closed -> BarNote(stringResource(R.string.applicant_closed))
+        ApplicationStatus.NotSelected -> BarNote(stringResource(R.string.applicant_not_selected))
     }
 }
 

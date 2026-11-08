@@ -89,7 +89,7 @@ fun TeamBuilderScreen(
     onOpenApplicant: (listingId: String, applicantId: String) -> Unit,
 ) {
     val viewModel = appViewModel { c, handle: SavedStateHandle ->
-        TeamBuilderViewModel(handle.toRoute<TeamBuilderRoute>().listingId, c.session, c.listings, c.applications, c.profiles)
+        TeamBuilderViewModel(handle.toRoute<TeamBuilderRoute>().listingId, c.session, c.listings, c.applications, c.profiles, c.notifications)
     }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
@@ -450,6 +450,7 @@ private fun Gaps(listing: Listing, option: TeamOption, recommendation: Recommend
             else add(GapLine.Short(role.title, count))
         }
         if (recommendation.ineligible.isNotEmpty()) add(GapLine.Ineligible(recommendation.ineligible.size))
+        if (recommendation.unverified.isNotEmpty()) add(GapLine.Unverified(recommendation.unverified.size))
         recommendation.keptIssues.forEach { add(GapLine.Kept(it.name, it.roleTitle, it.reason)) }
     }
     if (lines.isEmpty()) return
@@ -481,6 +482,7 @@ private sealed interface GapLine {
     data class Short(val role: String, val places: Int) : GapLine
     data class OtherMix(val role: String, val places: Int) : GapLine
     data class Ineligible(val count: Int) : GapLine
+    data class Unverified(val count: Int) : GapLine
     data class Kept(val name: String, val role: String, val reason: KeptReason) : GapLine
 }
 
@@ -490,6 +492,7 @@ private fun gapText(line: GapLine): String = when (line) {
     is GapLine.Short -> pluralStringResource(R.plurals.gap_short, line.places, line.role, line.places)
     is GapLine.OtherMix -> pluralStringResource(R.plurals.gap_other_mix, line.places, line.role, line.places)
     is GapLine.Ineligible -> pluralStringResource(R.plurals.gap_ineligible, line.count, line.count)
+    is GapLine.Unverified -> pluralStringResource(R.plurals.gap_unverified, line.count, line.count)
     is GapLine.Kept -> when (line.reason) {
         KeptReason.NotAvailable -> if (line.name.isBlank()) {
             stringResource(R.string.gap_kept_gone)
@@ -497,6 +500,7 @@ private fun gapText(line: GapLine): String = when (line) {
             stringResource(R.string.gap_kept_unavailable, line.name)
         }
         KeptReason.RoleOverbooked -> stringResource(R.string.gap_kept_overbooked, line.name, line.role)
+        KeptReason.EligibilityUnknown -> stringResource(R.string.gap_kept_unverified, line.name)
     }
 }
 
@@ -508,6 +512,9 @@ private fun NoTeamExplanation(listing: Listing, recommendation: Recommendation, 
         (listing.recruitment?.openPlaces ?: 0) == 0 -> stringResource(R.string.builder_none_full)
         recommendation.ineligible.isNotEmpty() ->
             pluralStringResource(R.plurals.builder_none_ineligible, recommendation.ineligible.size, recommendation.ineligible.size)
+        recommendation.unverified.isNotEmpty() ->
+            pluralStringResource(R.plurals.builder_none_unverified, recommendation.unverified.size, recommendation.unverified.size)
+        recommendation.keptIssues.isNotEmpty() -> stringResource(R.string.builder_none_kept)
         recommendation.emptyRoles.isNotEmpty() -> stringResource(
             R.string.builder_none_roles,
             recommendation.emptyRoles.mapNotNull { id -> roles.firstOrNull { it.id == id }?.title }.joinToString(", "),

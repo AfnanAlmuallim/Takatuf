@@ -30,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -41,6 +42,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import com.z.takatuf.R
+import com.z.takatuf.data.DraftStore
+import com.z.takatuf.ui.common.AutosaveDraft
+import com.z.takatuf.ui.common.DraftRestoredNote
+import com.z.takatuf.ui.common.rememberDrafts
 import com.z.takatuf.data.AppError
 import com.z.takatuf.data.Catalog
 import com.z.takatuf.data.model.Listing
@@ -72,9 +77,15 @@ fun ApplySheet(
     val recruitment = listing.recruitment ?: return
     val openRoles = recruitment.roles.filter { it.openings > 0 }.ifEmpty { recruitment.roles }
     var roleId by rememberSaveable { mutableStateOf(initialRoleId?.takeIf { id -> openRoles.any { it.id == id } } ?: openRoles.first().id) }
-    var contribution by rememberSaveable { mutableStateOf("") }
+    // What the student typed survives a closed sheet, a lost connection or a restart (US21).
+    val drafts = rememberDrafts()
+    val draftKey = DraftStore.application(listing.id)
+    val restored = remember { drafts.load(draftKey) }
+    var contribution by rememberSaveable { mutableStateOf(restored?.get("contribution").orEmpty()) }
     var hours by rememberSaveable { mutableIntStateOf(if (myHours > 0) myHours else recruitment.hoursPerWeek) }
-    var note by rememberSaveable { mutableStateOf("") }
+    var note by rememberSaveable { mutableStateOf(restored?.get("note").orEmpty()) }
+    var showRestored by rememberSaveable { mutableStateOf(restored != null) }
+    AutosaveDraft(draftKey, mapOf("contribution" to contribution, "note" to note))
     var showErrors by rememberSaveable { mutableStateOf(false) }
     val contributionTooShort = contribution.trim().length < ContributionMin
     val role = openRoles.first { it.id == roleId }
@@ -93,6 +104,10 @@ fun ApplySheet(
                 text = stringResource(R.string.apply_title, listing.title),
                 style = MaterialTheme.typography.headlineSmall,
             )
+            if (showRestored) {
+                Spacer(Modifier.height(12.dp))
+                DraftRestoredNote(onDiscard = { contribution = ""; note = ""; drafts.clear(draftKey); showRestored = false })
+            }
             Spacer(Modifier.height(20.dp))
             Text(stringResource(R.string.apply_role), style = MaterialTheme.typography.labelLarge)
             Spacer(Modifier.height(8.dp))

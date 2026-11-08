@@ -6,11 +6,14 @@ import com.z.takatuf.R
 import com.z.takatuf.data.AppError
 import com.z.takatuf.data.ApplicationRepository
 import com.z.takatuf.data.ListingRepository
+import com.z.takatuf.data.NotificationRepository
 import com.z.takatuf.data.Session
 import com.z.takatuf.data.attempt
 import com.z.takatuf.data.model.Application
 import com.z.takatuf.data.model.ApplicationStatus
 import com.z.takatuf.data.model.Listing
+import com.z.takatuf.data.model.NotificationTarget
+import com.z.takatuf.data.model.NotificationType
 import com.z.takatuf.data.toAppError
 import com.z.takatuf.ui.common.UserMessage
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -68,6 +71,7 @@ class ActivityViewModel(
     private val session: Session,
     listings: ListingRepository,
     private val applications: ApplicationRepository,
+    private val notifications: NotificationRepository,
 ) : ViewModel() {
 
     private val uid = session.uid.orEmpty()
@@ -110,30 +114,52 @@ class ActivityViewModel(
 
     fun acceptOffer(application: Application) {
         val me = session.profile ?: return
-        run(application, R.string.msg_joined_team, joined = true) { applications.acceptOffer(application.listingId, me) }
+        val tell = tellOwner(application, NotificationType.OfferAccepted, NotificationTarget.Workspace)
+        run(application, R.string.msg_joined_team, joined = true, after = tell) { applications.acceptOffer(application.listingId, me) }
     }
 
-    fun declineOffer(application: Application) =
-        run(application, R.string.msg_offer_declined) { applications.declineOffer(application.listingId, uid) }
+    fun declineOffer(application: Application) {
+        val tell = tellOwner(application, NotificationType.OfferDeclined, NotificationTarget.Applicants)
+        run(application, R.string.msg_offer_declined, after = tell) { applications.declineOffer(application.listingId, uid) }
+    }
 
-    fun confirmInterest(application: Application) =
-        run(application, R.string.msg_interest_confirmed) { applications.confirmInterest(application.listingId, uid) }
+    fun confirmInterest(application: Application) {
+        val tell = tellOwner(application, NotificationType.InterestConfirmed, NotificationTarget.Applicant)
+        run(application, R.string.msg_interest_confirmed, after = tell) { applications.confirmInterest(application.listingId, uid) }
+    }
 
     fun withdraw(application: Application) =
         run(application, R.string.msg_application_withdrawn) { applications.withdraw(application.listingId, uid) }
 
-    private fun run(application: Application, success: Int, joined: Boolean = false, block: suspend () -> Unit) {
+    /** A notification for the listing owner, its id fixed now so a retry can't repeat it (US19, US21). */
+    private fun tellOwner(application: Application, type: NotificationType, target: NotificationTarget): () -> Unit {
+        val actionId = java.util.UUID.randomUUID().toString()
+        return {
+            session.profile?.let { me ->
+                viewModelScope.launch {
+                    notifications.send(
+                        actionId, listOf(application.ownerId), type, application.listingId, application.listingTitle,
+                        me.uid, me.displayName, target,
+                        targetId = if (target == NotificationTarget.Applicant) "${application.listingId}/${me.uid}" else application.listingId,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun run(application: Application, success: Int, joined: Boolean = false, after: () -> Unit = {}, block: suspend () -> Unit) {
         if (transient.value.busyListingId != null) return
         transient.update { it.copy(busyListingId = application.listingId) }
         viewModelScope.launch {
             val result = attempt { block() }
+            if (result.isSuccess) after()
             transient.update {
                 it.copy(
                     busyListingId = null,
                     joinedListingId = if (joined && result.isSuccess) application.listingId else it.joinedListingId,
                     message = result.fold(
                         onSuccess = { UserMessage(success, listOf(application.listingTitle)) },
-                        onFailure = { e -> UserMessage(e.toAppError().message) },
+                        onFailure = { e -> UserMessage(e.toAppError().message, retry = { run(application, success, joined, after, block) }) },
                     ),
                 )
             }

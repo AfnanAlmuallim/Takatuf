@@ -5,10 +5,13 @@ import androidx.lifecycle.viewModelScope
 import com.z.takatuf.R
 import com.z.takatuf.data.AppError
 import com.z.takatuf.data.ListingRepository
+import com.z.takatuf.data.NotificationRepository
 import com.z.takatuf.data.Session
 import com.z.takatuf.data.TeamRepository
 import com.z.takatuf.data.attempt
 import com.z.takatuf.data.model.Listing
+import com.z.takatuf.data.model.NotificationTarget
+import com.z.takatuf.data.model.NotificationType
 import com.z.takatuf.data.toAppError
 import com.z.takatuf.ui.common.UserMessage
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -51,6 +54,7 @@ class TeamsViewModel(
     private val session: Session,
     listings: ListingRepository,
     private val teams: TeamRepository,
+    private val notifications: NotificationRepository,
 ) : ViewModel() {
 
     private val uid = session.uid.orEmpty()
@@ -96,22 +100,39 @@ class TeamsViewModel(
     /** Takes over as lead. Until now the previous lead stayed in charge (US16). */
     fun acceptLead(listing: Listing) {
         val me = session.profile ?: return
-        run(listing, R.string.msg_lead_accepted) { teams.acceptLead(listing.id, me) }
+        val actionId = java.util.UUID.randomUUID().toString()
+        run(listing, R.string.msg_lead_accepted, after = { tell(listing, actionId, NotificationType.LeadAccepted) }) {
+            teams.acceptLead(listing.id, me)
+        }
     }
 
-    fun declineLead(listing: Listing) = run(listing, R.string.msg_lead_declined) { teams.clearNomination(listing.id) }
+    fun declineLead(listing: Listing) {
+        val actionId = java.util.UUID.randomUUID().toString()
+        run(listing, R.string.msg_lead_declined, after = { tell(listing, actionId, NotificationType.LeadDeclined) }) {
+            teams.clearNomination(listing.id, uid, declinedByNominee = true)
+        }
+    }
 
-    private fun run(listing: Listing, success: Int, block: suspend () -> Unit) {
+    /** Tells the lead who asked how the nominee answered (US19). */
+    private fun tell(listing: Listing, actionId: String, type: NotificationType) {
+        val me = session.profile ?: return
+        viewModelScope.launch {
+            notifications.send(actionId, listOf(listing.ownerId), type, listing.id, listing.title, me.uid, me.displayName, NotificationTarget.Workspace)
+        }
+    }
+
+    private fun run(listing: Listing, success: Int, after: () -> Unit = {}, block: suspend () -> Unit) {
         if (transient.value.busyListingId != null) return
         transient.update { it.copy(busyListingId = listing.id) }
         viewModelScope.launch {
             val result = attempt { block() }
+            if (result.isSuccess) after()
             transient.update {
                 it.copy(
                     busyListingId = null,
                     message = result.fold(
                         onSuccess = { UserMessage(success, listOf(listing.title)) },
-                        onFailure = { e -> UserMessage(e.toAppError().message) },
+                        onFailure = { e -> UserMessage(e.toAppError().message, retry = { run(listing, success, after, block) }) },
                     ),
                 )
             }

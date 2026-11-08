@@ -33,6 +33,12 @@ fun formatDay(date: LocalDate): String {
     return DateTimeFormatter.ofPattern(DateFormat.getBestDateTimePattern(locale, skeleton), locale).format(date)
 }
 
+/** [formatDay] for code outside Compose, such as the background check. */
+fun formatDayPlain(date: LocalDate, locale: Locale = Locale.getDefault()): String {
+    val skeleton = if (date.year == LocalDate.now().year) "MMMd" else "yMMMd"
+    return DateTimeFormatter.ofPattern(DateFormat.getBestDateTimePattern(locale, skeleton), locale).format(date)
+}
+
 /** "Oct 12 – 14" style range for an event running from [start] until the exclusive [end]. */
 fun formatEventRange(context: Context, start: Instant, end: Instant): String {
     val flags = DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_ABBREV_MONTH

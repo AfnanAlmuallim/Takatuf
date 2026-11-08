@@ -57,6 +57,8 @@ fun ApplicationStatusTag(application: Application, forOwner: Boolean, modifier: 
         ApplicationStatus.Withdrawn -> Tag(stringResource(R.string.status_withdrawn), modifier, Icons.AutoMirrored.Rounded.Undo, TagTone.Quiet)
         ApplicationStatus.Left -> Tag(stringResource(R.string.status_left), modifier, Icons.AutoMirrored.Rounded.Logout, TagTone.Quiet)
         ApplicationStatus.Removed -> Tag(stringResource(R.string.status_removed), modifier, Icons.Rounded.Block, TagTone.Quiet)
+        ApplicationStatus.Closed -> Tag(stringResource(R.string.status_closed), modifier, Icons.Rounded.TaskAlt, TagTone.Quiet)
+        ApplicationStatus.NotSelected -> Tag(stringResource(R.string.status_not_selected), modifier, Icons.Rounded.Close, TagTone.Quiet)
     }
 }
 

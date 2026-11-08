@@ -1,6 +1,14 @@
 package com.z.takatuf.ui.navigation
 
+import android.Manifest
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
@@ -31,6 +39,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
@@ -48,7 +57,9 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navDeepLink
 import com.z.takatuf.R
 import com.z.takatuf.TakatufApplication
+import com.z.takatuf.data.model.AppNotification
 import com.z.takatuf.data.model.ListingKind
+import com.z.takatuf.data.model.NotificationTarget
 import com.z.takatuf.ui.activity.ActivityScreen
 import com.z.takatuf.ui.activity.attentionCount
 import com.z.takatuf.ui.applicants.ApplicantDetailScreen
@@ -56,8 +67,12 @@ import com.z.takatuf.ui.applicants.ApplicantsScreen
 import com.z.takatuf.ui.discover.DiscoverScreen
 import com.z.takatuf.ui.editor.EditorScreen
 import com.z.takatuf.ui.listing.ListingDetailScreen
+import com.z.takatuf.ui.moderation.ModerationScreen
+import com.z.takatuf.ui.moderation.ReportDetailScreen
+import com.z.takatuf.ui.notifications.NotificationsScreen
 import com.z.takatuf.ui.passport.PassportScreen
 import com.z.takatuf.ui.passport.PersonScreen
+import com.z.takatuf.ui.records.FeedbackScreen
 import com.z.takatuf.ui.team.TeamBuilderScreen
 import com.z.takatuf.ui.team.TeamsScreen
 import com.z.takatuf.ui.team.WorkspaceScreen
@@ -96,6 +111,7 @@ fun TakatufNavHost(newIntents: Flow<Intent>) {
     LaunchedEffect(navController) {
         newIntents.collect { navController.handleDeepLink(it) }
     }
+    AskForNotifications()
 
     Scaffold(
         contentWindowInsets = WindowInsets(0),
@@ -130,7 +146,7 @@ fun TakatufNavHost(newIntents: Flow<Intent>) {
                                         Icon(if (selected) tab.selectedIcon else tab.icon, contentDescription = null)
                                     }
                                 },
-                                label = { Text(stringResource(tab.label)) },
+                                label = { Text(stringResource(tab.label), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                                 colors = NavigationBarItemDefaults.colors(
                                     indicatorColor = MaterialTheme.colorScheme.primaryContainer,
                                     selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -148,28 +164,45 @@ fun TakatufNavHost(newIntents: Flow<Intent>) {
             startDestination = DiscoverRoute,
             modifier = Modifier.padding(bottom = padding.calculateBottomPadding()),
         ) {
-            composable<DiscoverRoute> {
+            composable<DiscoverRoute>(
+                deepLinks = listOf(navDeepLink { uriPattern = "${DeepLinkScheme}discover" }),
+            ) {
                 DiscoverScreen(
                     onOpenListing = { navController.navigate(ListingRoute(it)) },
                     onPost = { kind -> navController.navigate(EditorRoute(kind.key)) },
+                    onInbox = { navController.navigate(NotificationsRoute) },
                 )
             }
-            composable<TeamsRoute> {
+            composable<TeamsRoute>(
+                deepLinks = listOf(navDeepLink { uriPattern = "${DeepLinkScheme}teams" }),
+            ) {
                 TeamsScreen(
                     onOpenTeam = { navController.navigate(WorkspaceRoute(it)) },
                     onDiscover = { navController.navigateToTab(DiscoverRoute) },
+                    onInbox = { navController.navigate(NotificationsRoute) },
                 )
             }
-            composable<ActivityRoute> {
+            composable<ActivityRoute>(
+                deepLinks = listOf(navDeepLink { uriPattern = "${DeepLinkScheme}activity" }),
+            ) {
                 ActivityScreen(
                     onOpenListing = { navController.navigate(ListingRoute(it)) },
                     onOpenApplicants = { navController.navigate(ApplicantsRoute(it)) },
                     onDiscover = { navController.navigateToTab(DiscoverRoute) },
                     onPost = { kind -> navController.navigate(EditorRoute(kind.key)) },
                     onOpenTeam = { navController.navigate(WorkspaceRoute(it)) },
+                    onInbox = { navController.navigate(NotificationsRoute) },
                 )
             }
-            composable<PassportRoute> { PassportScreen() }
+            composable<PassportRoute>(
+                deepLinks = listOf(navDeepLink { uriPattern = "${DeepLinkScheme}passport" }),
+            ) {
+                PassportScreen(
+                    onInbox = { navController.navigate(NotificationsRoute) },
+                    onOpenModeration = { navController.navigate(ModerationRoute) },
+                    onReviewTeammates = { navController.navigate(FeedbackRoute(it)) },
+                )
+            }
             composable<ListingRoute>(
                 deepLinks = listOf(navDeepLink<ListingRoute>(basePath = "${DeepLinkScheme}listing")),
             ) {
@@ -214,7 +247,9 @@ fun TakatufNavHost(newIntents: Flow<Intent>) {
                     onBuildTeam = { navController.navigate(TeamBuilderRoute(it)) },
                 )
             }
-            composable<ApplicantRoute> {
+            composable<ApplicantRoute>(
+                deepLinks = listOf(navDeepLink<ApplicantRoute>(basePath = "${DeepLinkScheme}applicant")),
+            ) {
                 ApplicantDetailScreen(onBack = { navController.popBackStack() })
             }
             composable<TeamBuilderRoute> {
@@ -233,6 +268,7 @@ fun TakatufNavHost(newIntents: Flow<Intent>) {
                         if (person == uid) navController.navigateToTab(PassportRoute) else navController.navigate(PersonRoute(person))
                     },
                     onReviewApplicants = { navController.navigate(ApplicantsRoute(it)) },
+                    onReviewTeammates = { navController.navigate(FeedbackRoute(it)) },
                 )
             }
             composable<PersonRoute>(
@@ -240,7 +276,83 @@ fun TakatufNavHost(newIntents: Flow<Intent>) {
             ) {
                 PersonScreen(onBack = { navController.popBackStack() })
             }
+            composable<FeedbackRoute> {
+                FeedbackScreen(onBack = { navController.popBackStack() })
+            }
+            composable<NotificationsRoute>(
+                deepLinks = listOf(navDeepLink { uriPattern = "${DeepLinkScheme}inbox" }),
+            ) {
+                NotificationsScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpen = { navController.open(it, uid) },
+                )
+            }
+            composable<ModerationRoute> {
+                ModerationScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenReport = { navController.navigate(ReportRoute(it)) },
+                )
+            }
+            composable<ReportRoute>(
+                deepLinks = listOf(navDeepLink<ReportRoute>(basePath = "${DeepLinkScheme}report")),
+            ) {
+                ReportDetailScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenListing = { navController.navigate(ListingRoute(it)) },
+                    onOpenPerson = { person ->
+                        if (person == uid) navController.navigateToTab(PassportRoute) else navController.navigate(PersonRoute(person))
+                    },
+                )
+            }
         }
+    }
+}
+
+/**
+ * Asks once, on Android 13 and later, whether Takatuf may show notifications. Saying no
+ * leaves the in-app inbox working as before.
+ */
+@Composable
+private fun AskForNotifications() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+    val context = LocalContext.current
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    LaunchedEffect(Unit) {
+        val prefs = context.getSharedPreferences("permissions", Context.MODE_PRIVATE)
+        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        if (!granted && !prefs.getBoolean("asked_notifications", false)) {
+            prefs.edit { putBoolean("asked_notifications", true) }
+            launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+}
+
+/** Opens what a notification is about (US19). */
+private fun NavHostController.open(notification: AppNotification, uid: String) {
+    val listingId = notification.listingId
+    // Notices already stored may point at a listing without naming one; never open an empty id.
+    if (listingId.isBlank() && notification.target.needsListing) {
+        navigateToTab(PassportRoute)
+        return
+    }
+    when (notification.target) {
+        NotificationTarget.Listing -> navigate(ListingRoute(listingId))
+        NotificationTarget.Workspace -> navigate(WorkspaceRoute(listingId))
+        NotificationTarget.Applicants -> navigate(ApplicantsRoute(listingId))
+        NotificationTarget.Applicant -> {
+            val applicantId = notification.targetId.substringAfter('/', "")
+            if (applicantId.isNotBlank()) navigate(ApplicantRoute(listingId, applicantId)) else navigate(ApplicantsRoute(listingId))
+        }
+        NotificationTarget.Activity -> navigateToTab(ActivityRoute)
+        NotificationTarget.Teams -> navigateToTab(TeamsRoute)
+        NotificationTarget.Passport ->
+            if (notification.targetId.isNotBlank() && notification.targetId != uid && notification.targetId != listingId) {
+                navigate(PersonRoute(notification.targetId))
+            } else {
+                navigateToTab(PassportRoute)
+            }
+        NotificationTarget.Reports ->
+            if (notification.targetId.isNotBlank()) navigate(ReportRoute(notification.targetId)) else navigate(ModerationRoute)
     }
 }
 

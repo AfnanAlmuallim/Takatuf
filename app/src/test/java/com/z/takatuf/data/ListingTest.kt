@@ -54,8 +54,6 @@ class ListingTest {
     @Test
     fun `events report ended and registration closed separately`() {
         assertNull(event(days(5), days(7), days(2)).closedReason(now))
-        assertNull(event(days(5), days(7), now).closedReason(now.minusNanos(1)))
-        assertEquals(ClosedReason.RegistrationClosed, event(days(5), days(7), now).closedReason(now))
         assertEquals(ClosedReason.RegistrationClosed, event(days(5), days(7), days(-1)).closedReason(now))
         assertEquals(ClosedReason.Ended, event(days(-5), days(-3), days(-8)).closedReason(now))
     }
@@ -67,5 +65,63 @@ class ListingTest {
             linkedEvent = LinkedEvent("e", "Hackathon", "Org", EventType.Hackathon, days(-4), days(-2), 2, 4),
         )
         assertEquals(ClosedReason.EventOver, team.closedReason(now))
+    }
+
+    // Deadlines and end instants are exclusive: open strictly before, closed at and after.
+    private val ms = Duration.ofMillis(1)
+
+    @Test
+    fun `U13 recruitment is open before its deadline and closed at and after it`() {
+        val deadline = days(2)
+        val listing = project(deadline = deadline)
+        assertNull(listing.closedReason(deadline.minus(ms)))
+        assertEquals(ClosedReason.DeadlinePassed, listing.closedReason(deadline))
+        assertEquals(ClosedReason.DeadlinePassed, listing.closedReason(deadline.plus(ms)))
+    }
+
+    @Test
+    fun `U14 an event is ended at its end instant`() {
+        val end = days(3)
+        val listing = event(days(1), end, registration = null)
+        assertNull(listing.closedReason(end.minus(ms)))
+        assertEquals(ClosedReason.Ended, listing.closedReason(end))
+        assertEquals(ClosedReason.Ended, listing.closedReason(end.plus(ms)))
+    }
+
+    @Test
+    fun `registration closes at its deadline instant`() {
+        val registration = days(1)
+        val listing = event(days(2), days(3), registration)
+        assertNull(listing.closedReason(registration.minus(ms)))
+        assertEquals(ClosedReason.RegistrationClosed, listing.closedReason(registration))
+    }
+
+    @Test
+    fun `U15 linked recruitment closes at the linked event's end instant`() {
+        val end = days(3)
+        val team = project().copy(
+            kind = ListingKind.Team,
+            linkedEvent = LinkedEvent("e", "Hackathon", "Org", EventType.Hackathon, days(1), end, 2, 4),
+        )
+        assertNull(team.closedReason(end.minus(ms)))
+        assertEquals(ClosedReason.EventOver, team.closedReason(end))
+        assertEquals(ClosedReason.EventOver, team.closedReason(end.plus(ms)))
+    }
+
+    @Test
+    fun `I10 linked recruitment follows the parent event's current dates, not its copy`() {
+        // The request kept the dates the event had when it was linked...
+        val team = project().copy(
+            kind = ListingKind.Team,
+            linkedEvent = LinkedEvent("e", "Hackathon", "Org", EventType.Hackathon, days(5), days(7), 2, 4),
+        )
+        assertNull(team.closedReason(now))
+        // ...then the organiser moved the event into the past.
+        val moved = event(days(-3), days(-1), registration = null).copy(id = "e")
+        assertEquals(ClosedReason.EventOver, team.closedReason(now, parentEvent = moved))
+        // And the other way: an extended event reopens a request whose copy looked over.
+        val stale = team.copy(linkedEvent = team.linkedEvent!!.copy(endDate = days(-1)))
+        val extended = event(days(1), days(4), registration = null).copy(id = "e")
+        assertNull(stale.closedReason(now, parentEvent = extended))
     }
 }

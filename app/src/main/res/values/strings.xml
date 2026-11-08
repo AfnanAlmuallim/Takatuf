@@ -162,7 +162,7 @@
     <string name="visibility_applied">Teams you apply to</string>
     <string name="visibility_applied_body">Only owners of listings you apply to can open it.</string>
     <string name="visibility_private">Only you</string>
-    <string name="visibility_private_body">Owners see your name and application, not your passport.</string>
+    <string name="visibility_private_body">Your passport stays hidden. Other students still see your name, major, year and headline, and owners see your applications.</string>
 
     <!-- Listing kinds and states -->
     <string name="kind_project">Project</string>
@@ -438,6 +438,10 @@
         <item quantity="one">%d more role</item>
         <item quantity="other">%d more roles</item>
     </plurals>
+    <plurals name="editor_team_size_under">
+        <item quantity="one">The event needs at least %1$d member. This team would have %2$d.</item>
+        <item quantity="other">The event needs at least %1$d members. This team would have %2$d.</item>
+    </plurals>
     <plurals name="editor_team_size_over">
         <item quantity="one">The event allows up to %1$d member. This team would have %2$d.</item>
         <item quantity="other">The event allows up to %1$d members. This team would have %2$d.</item>
@@ -527,6 +531,10 @@
     <string name="eligible_any">Anyone</string>
     <string name="eligible_undergraduate">Undergraduates</string>
     <string name="eligible_graduate">Graduate students</string>
+    <string name="eligible_only_undergraduate">Undergraduates only</string>
+    <string name="eligible_only_graduate">Graduate students only</string>
+    <string name="event_details_updated">Details updated %1$s</string>
+    <string name="fit_how">Fit weighs the role’s skills most (half), then the hours offered (a quarter), related experience and work links, and shared interests. Missing information counts as average, never as poor.</string>
     <string name="status_offer_sent">Offer sent</string>
     <string name="status_offer_received">Offer received</string>
     <string name="status_offer_expired">Offer expired</string>
@@ -698,7 +706,10 @@
     <string name="milestone_field_title_placeholder">First working prototype</string>
     <string name="milestone_field_assignee">Responsible</string>
     <string name="milestone_field_due">Target date</string>
-    <string name="milestone_field_due_none">No date</string>
+    <string name="milestone_field_due_choose">Choose a date</string>
+    <string name="milestone_field_due_required">Required. Pick the day this should be done by.</string>
+    <string name="milestone_needs_date">Needs a target date</string>
+    <string name="link_invalid">Enter a web address, like docs.google.com/your-file</string>
     <string name="milestone_field_status">Status</string>
     <string name="action_delete_milestone">Delete milestone</string>
     <string name="milestone_delete_confirm">Delete this milestone for everyone?</string>
@@ -816,6 +827,16 @@
         <item quantity="one">%d earlier offer is still open. Whoever accepts first takes the place.</item>
         <item quantity="other">%d earlier offers are still open. Whoever accepts first takes the place.</item>
     </plurals>
+    <plurals name="gap_unverified">
+        <item quantity="one">%d applicant hasn’t recorded their year, so their eligibility can’t be checked and they’re left out. You can still offer them a place yourself.</item>
+        <item quantity="other">%d applicants haven’t recorded their year, so their eligibility can’t be checked and they’re left out. You can still offer them a place yourself.</item>
+    </plurals>
+    <plurals name="builder_none_unverified">
+        <item quantity="one">The %d active applicant hasn’t recorded their year, so their eligibility for this event can’t be checked.</item>
+        <item quantity="other">The %d active applicants haven’t recorded their year, so their eligibility for this event can’t be checked.</item>
+    </plurals>
+    <string name="gap_kept_unverified">%1$s hasn’t recorded their year, so their eligibility can’t be checked.</string>
+    <string name="builder_none_kept">None of the people you kept can be used. Remove them to see other suggestions.</string>
     <plurals name="builder_none_ineligible">
         <item quantity="one">The %d active applicant isn’t eligible for this event.</item>
         <item quantity="other">None of the %d active applicants are eligible for this event.</item>
@@ -872,5 +893,238 @@
     <plurals name="gap_other_mix">
         <item quantity="one">%1$s: %2$d place is left empty in this mix. Another option fills it.</item>
         <item quantity="other">%1$s: %2$d places are left empty in this mix. Another option fills them.</item>
+    </plurals>
+    <!-- Sprint 3: records and contributions (US17) -->
+    <string name="workspace_tab_record">Record</string>
+    <string name="record_tab_title">What the team did</string>
+    <string name="record_tab_body_lead">Record what each person contributed and confirm what members add. When the work is done, complete the project to close it and open feedback.</string>
+    <string name="record_tab_body_member">Add what you worked on, with links where you can. The lead can confirm it, which shows on your passport.</string>
+    <string name="records_title">Team history</string>
+    <string name="records_empty_mine">Teams you lead or join show up here, with what you contributed.</string>
+    <string name="records_empty">%1$s hasn’t been on a team in Takatuf yet.</string>
+    <string name="record_led_team">Led the team</string>
+    <string name="record_no_contributions">No contributions recorded yet.</string>
+    <string name="record_period">%1$s to %2$s</string>
+    <string name="record_since">Since %1$s</string>
+    <string name="participation_active">Active</string>
+    <string name="participation_completed">Completed</string>
+    <string name="participation_left">Left</string>
+    <string name="participation_removed">Removed</string>
+    <string name="evidence_confirmed">Confirmed by %1$s</string>
+    <string name="evidence_linked">Linked to work</string>
+    <string name="evidence_self_reported">Self-reported</string>
+    <string name="pending_send">Waiting to send</string>
+    <string name="action_add_contribution">Add contribution</string>
+    <string name="action_edit_contribution">Edit %1$s</string>
+    <string name="action_save_contribution">Save contribution</string>
+    <string name="action_delete_contribution">Delete contribution</string>
+    <string name="action_confirm">Confirm</string>
+    <string name="action_unconfirm">Withdraw confirmation</string>
+    <string name="contribution_add_title">Add a contribution</string>
+    <string name="contribution_add_for">Add a contribution for %1$s</string>
+    <string name="contribution_edit_title">Edit contribution</string>
+    <string name="contribution_field_title">What you did</string>
+    <string name="contribution_field_title_placeholder">Built the sign-in screen</string>
+    <string name="contribution_field_detail">Details (optional)</string>
+    <string name="contribution_field_links">Links to the work (optional)</string>
+    <string name="contribution_field_links_placeholder">One link per line, up to three</string>
+    <string name="contribution_links_hint">A link to the work makes the record stronger than your word alone.</string>
+    <string name="contribution_links_invalid">One of these links isn’t a valid web address.</string>
+    <string name="contribution_note_self">Shows as self-reported until the lead confirms it.</string>
+    <string name="contribution_note_lead">You’re the lead, so this is saved as confirmed.</string>
+    <string name="contribution_note_edit">Editing removes the lead’s confirmation until they confirm it again.</string>
+    <string name="msg_contribution_saved">Contribution saved</string>
+    <string name="msg_contribution_deleted">Contribution deleted</string>
+    <string name="msg_contribution_confirmed">Contribution confirmed</string>
+    <string name="msg_contribution_unconfirmed">Confirmation withdrawn</string>
+    <string name="action_complete_project">Complete project</string>
+    <string name="complete_title">Complete the project</string>
+    <string name="complete_body">Everyone’s participation is recorded as completed and teammates can review each other. This can’t be undone.</string>
+    <string name="complete_summary">What the team delivered</string>
+    <string name="complete_summary_placeholder">A working prototype presented at the showcase</string>
+    <string name="complete_link">Link to the result (optional)</string>
+    <string name="complete_done_on">Completed on %1$s</string>
+    <string name="complete_open_result">Open the result</string>
+    <string name="msg_project_completed">Project completed. Feedback is open.</string>
+    <string name="closed_completed_short">Completed</string>
+    <plurals name="hero_completed_team">
+        <item quantity="one">person completed this project</item>
+        <item quantity="other">people completed this project</item>
+    </plurals>
+    <string name="closed_completed_long">The team completed this project on %1$s.</string>
+    <string name="closed_hidden_short">Hidden</string>
+    <string name="closed_hidden_long">Moderators removed this listing from Discover.</string>
+    <string name="closed_hidden_owner">Moderators removed this listing from Discover: %1$s</string>
+
+    <!-- Feedback and disputes (US18) -->
+    <string name="feedback_title">Feedback from teammates</string>
+    <string name="feedback_none_mine">No reviews yet. Teammates can review you once a project is completed or someone leaves.</string>
+    <string name="feedback_none">No reviews for %1$s yet.</string>
+    <string name="feedback_contribution">Contribution</string>
+    <string name="feedback_leadership">Leadership</string>
+    <string name="feedback_from">%1$s, on %2$s</string>
+    <string name="feedback_disputed">Disputed</string>
+    <string name="feedback_dispute_reason">Disputed: %1$s</string>
+    <string name="feedback_hidden_by_moderators">A review was removed by moderators: %1$s</string>
+    <string name="feedback_from_teammates_only">Only people who worked on the same team can leave a review.</string>
+    <string name="feedback_reviewed">Reviewed</string>
+    <string name="feedback_screen_title">Review teammates</string>
+    <string name="feedback_screen_body">Rate what each person contributed. Be specific and fair: your name is shown with the review.</string>
+    <string name="feedback_not_open_title">Feedback isn’t open yet</string>
+    <string name="feedback_not_open_body">You can review teammates once the lead completes the project or you leave the team.</string>
+    <string name="feedback_no_teammates_title">No one to review</string>
+    <string name="feedback_no_teammates_body">Nobody else on this team uses Takatuf.</string>
+    <string name="action_review">Review</string>
+    <string name="action_edit_review">Edit review</string>
+    <string name="action_review_teammates">Review teammates</string>
+    <string name="action_save_review">Save review</string>
+    <string name="action_dispute_feedback">Dispute</string>
+    <string name="review_title">Review %1$s</string>
+    <string name="review_contribution_question">How much did %1$s contribute?</string>
+    <string name="review_leadership_question">How well did %1$s lead the team?</string>
+    <string name="review_comment">Comment (optional)</string>
+    <string name="review_comment_placeholder">What they did well, or could do differently</string>
+    <string name="review_visibility_note">%1$s sees this on their passport, with your name.</string>
+    <string name="rating_1">Very little</string>
+    <string name="rating_2">Some</string>
+    <string name="rating_3">Fair share</string>
+    <string name="rating_4">A lot</string>
+    <string name="rating_5">Outstanding</string>
+    <string name="rating_choice">%1$d, %2$s</string>
+    <string name="rating_out_of_five">%1$s out of 5</string>
+    <string name="rating_a11y">%1$s: %2$s out of 5</string>
+    <string name="msg_review_saved">Review saved</string>
+    <string name="dispute_title">Dispute this review</string>
+    <string name="dispute_body">The review from %1$s stays on your passport, marked as disputed, and moderators look at it.</string>
+    <string name="dispute_reason">Why it’s unfair</string>
+    <string name="msg_dispute_sent">Dispute sent to moderators</string>
+
+    <!-- Notifications (US19) -->
+    <string name="notifications_title">Notifications</string>
+    <string name="notifications_empty_title">You’re all caught up</string>
+    <string name="notifications_empty_body">Offers, team changes and reviews show up here.</string>
+    <string name="notification_read">Read</string>
+    <string name="notification_unread">Unread</string>
+    <string name="action_mark_all_read">Mark all read</string>
+    <string name="action_remove_notification">Remove notification</string>
+    <string name="notif_application_received">%1$s applied to %2$s</string>
+    <string name="notif_offer_received">%1$s offered you a place on %2$s</string>
+    <string name="notif_offer_cancelled">%1$s withdrew the offer for %2$s</string>
+    <string name="notif_offer_accepted">%1$s joined %2$s</string>
+    <string name="notif_offer_declined">%1$s declined the offer for %2$s</string>
+    <string name="notif_reconfirm_requested">A place reopened on %1$s. Are you still interested?</string>
+    <string name="notif_interest_confirmed">%1$s is still interested in %2$s</string>
+    <string name="notif_member_left">%1$s left %2$s</string>
+    <string name="notif_member_removed">You’re no longer on %1$s</string>
+    <string name="notif_lead_requested">%1$s asked you to lead %2$s</string>
+    <string name="notif_lead_accepted">%1$s is now leading %2$s</string>
+    <string name="notif_lead_declined">%1$s won’t take over %2$s</string>
+    <string name="notif_milestone_assigned">%1$s gave you a milestone on %2$s</string>
+    <string name="notif_listing_changed">%1$s changed. Check the details.</string>
+    <string name="notif_event_changed">The event for %1$s changed. Check the dates.</string>
+    <string name="notif_project_completed">%1$s is complete. You can review your teammates.</string>
+    <string name="notif_feedback_received">%1$s reviewed your work on %2$s</string>
+    <string name="notif_report_resolved">Moderators reviewed your report</string>
+    <string name="notif_moderation_notice">Moderators changed something of yours</string>
+    <string name="notif_recruitment_closed">The team completed %1$s, so recruitment has ended</string>
+    <string name="status_closed">Recruitment ended</string>
+    <string name="status_not_selected">Not selected</string>
+    <string name="application_not_selected">The lead decided not to go ahead with your application.</string>
+    <string name="application_closed">Recruitment ended when the team completed the project.</string>
+    <string name="applicant_not_selected">You decided not to go ahead with this application</string>
+    <string name="action_not_selected">Not going ahead</string>
+    <string name="not_selected_title">Not going ahead with %1$s?</string>
+    <string name="not_selected_body">%1$s is told their application wasn’t selected. They can’t apply again to this listing.</string>
+    <string name="msg_not_selected">Application closed</string>
+    <string name="notif_application_declined">%1$s didn’t go ahead with your application to %2$s</string>
+    <string name="notif_milestone_completed">%1$s finished a milestone on %2$s</string>
+    <string name="applicant_closed">Recruitment ended when the team completed the project</string>
+    <plurals name="notifications_unread_a11y">
+        <item quantity="one">Notifications, %d unread</item>
+        <item quantity="other">Notifications, %d unread</item>
+    </plurals>
+
+    <!-- Reports and moderation (US20) -->
+    <string name="action_report_listing">Report listing</string>
+    <string name="action_report_conduct">Report conduct</string>
+    <string name="action_send_report">Send report</string>
+    <string name="report_listing_title">Report this listing</string>
+    <string name="report_user_title">Report this person’s conduct</string>
+    <string name="report_feedback_title">Report this review</string>
+    <string name="report_reason">What’s wrong</string>
+    <string name="report_reason_inaccurate">Details are wrong or out of date</string>
+    <string name="report_reason_inappropriate">Inappropriate content</string>
+    <string name="report_reason_spam">Spam or not a real opportunity</string>
+    <string name="report_reason_misconduct">Conduct on a team</string>
+    <string name="report_reason_unfair_feedback">Unfair or untrue review</string>
+    <string name="report_reason_other">Something else</string>
+    <string name="report_details">Details (optional)</string>
+    <string name="report_details_placeholder">What should a moderator know?</string>
+    <string name="report_privacy_note">Only moderators see who sent a report.</string>
+    <string name="msg_report_sent">Report sent to moderators</string>
+    <string name="moderation_title">Moderation</string>
+    <string name="moderation_tab_open">Open</string>
+    <string name="moderation_tab_closed">Closed</string>
+    <string name="moderation_empty_open">No open reports</string>
+    <string name="moderation_empty_closed">No closed reports yet</string>
+    <string name="moderation_empty_body">Reports from students land here for review.</string>
+    <string name="report_detail_title">Report</string>
+    <string name="report_row_meta">%1$s, reported by %2$s %3$s</string>
+    <string name="report_target_listing">Listing</string>
+    <string name="report_target_user">Conduct</string>
+    <string name="report_target_feedback">Review</string>
+    <string name="report_status_open">Open</string>
+    <string name="report_status_reviewing">Reviewing</string>
+    <string name="report_status_resolved">Resolved</string>
+    <string name="report_status_dismissed">Dismissed</string>
+    <string name="report_reported_item">What was reported</string>
+    <string name="report_resolution">Decision: %1$s</string>
+    <string name="moderation_decide">Decision</string>
+    <string name="moderation_reason">Reason</string>
+    <string name="moderation_reason_hint">Recorded in the moderation log and shown to the people affected.</string>
+    <string name="moderation_listing_visible">Visible in Discover</string>
+    <string name="moderation_listing_hidden">Hidden from Discover</string>
+    <string name="moderation_listing_flagged">Flagged: %1$s</string>
+    <string name="moderation_action_reviewing">Mark as reviewing</string>
+    <string name="moderation_action_resolve">Resolve, no change</string>
+    <string name="moderation_action_dismiss">Dismiss</string>
+    <string name="moderation_action_hide_listing">Hide listing</string>
+    <string name="moderation_action_unhide_listing">Show listing again</string>
+    <string name="moderation_action_flag_listing">Flag as out of date</string>
+    <string name="moderation_action_hide_feedback">Hide review</string>
+    <string name="moderation_action_restore_feedback">Restore review</string>
+    <string name="moderation_action_warn_user">Warn this person</string>
+    <string name="action_record_decision">Record decision</string>
+    <string name="action_view_passport">View passport</string>
+    <string name="msg_moderation_saved">Decision recorded</string>
+    <string name="tag_flagged">May be outdated</string>
+    <string name="flag_notice_title">Details may be out of date</string>
+    <string name="flag_notice_body">Moderators flagged this listing: %1$s. Check with the owner before relying on it.</string>
+    <string name="flag_notice_owner">Moderators flagged this listing: %1$s. Edit it to correct the details and the flag clears.</string>
+
+    <string name="channel_updates">Team and application updates</string>
+    <string name="channel_updates_body">Offers, decisions, team changes and reviews</string>
+    <string name="channel_reminders">Milestone reminders</string>
+    <string name="channel_reminders_body">Milestones assigned to you that are due within a day</string>
+    <string name="reminder_milestone_title">Due soon: %1$s</string>
+    <string name="reminder_milestone_body">%1$s, due %2$s</string>
+
+    <!-- Drafts, retries and pending changes (US21) -->
+    <string name="action_retry">Retry</string>
+    <string name="draft_restored">Restored what you typed last time</string>
+    <string name="action_discard_draft">Start over</string>
+    <string name="sync_all_sent">All changes sent</string>
+    <string name="sync_refused">A change couldn’t be saved. Check it and try again.</string>
+    <plurals name="sync_pending">
+        <item quantity="one">%d change waiting to send</item>
+        <item quantity="other">%d changes waiting to send</item>
+    </plurals>
+    <plurals name="feedback_count">
+        <item quantity="one">%d review</item>
+        <item quantity="other">%d reviews</item>
+    </plurals>
+    <plurals name="feedback_disputed_count">
+        <item quantity="one">%d is disputed</item>
+        <item quantity="other">%d are disputed</item>
     </plurals>
 </resources>

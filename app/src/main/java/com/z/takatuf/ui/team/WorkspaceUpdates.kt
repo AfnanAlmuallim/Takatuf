@@ -30,12 +30,11 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
+import com.z.takatuf.ui.common.ActionSheet
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,6 +51,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.z.takatuf.R
+import com.z.takatuf.ui.common.AutosaveDraft
+import com.z.takatuf.ui.common.DraftRestoredNote
+import com.z.takatuf.ui.common.rememberDrafts
+import com.z.takatuf.domain.Validators
 import com.z.takatuf.data.model.Deliverable
 import com.z.takatuf.data.model.TeamUpdate
 import com.z.takatuf.ui.common.Monogram
@@ -154,7 +157,7 @@ private fun LinkRow(link: Deliverable, canDelete: Boolean, onOpen: () -> Unit, o
         Column(Modifier.weight(1f)) {
             Text(link.label, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                stringResource(R.string.link_meta, hostOf(link.url), link.addedByName),
+                if (link.pending) stringResource(R.string.pending_send) else stringResource(R.string.link_meta, hostOf(link.url), link.addedByName),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -184,7 +187,11 @@ private fun UpdateRow(update: TeamUpdate, mine: Boolean, canDelete: Boolean, onO
                     modifier = Modifier.weight(1f, fill = false),
                 )
                 Spacer(Modifier.width(8.dp))
-                Text(relativeTime(update.createdAt), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    if (update.pending) stringResource(R.string.pending_send) else relativeTime(update.createdAt),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             Spacer(Modifier.height(2.dp))
             Text(update.text, style = MaterialTheme.typography.bodyMedium)
@@ -223,16 +230,25 @@ private fun UpdateRow(update: TeamUpdate, mine: Boolean, canDelete: Boolean, onO
 /** Posting progress, a blocker or a decision, with an optional link. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun UpdateSheet(posting: Boolean, onPost: (text: String, link: String) -> Unit, onDismiss: () -> Unit) {
-    var text by rememberSaveable { mutableStateOf("") }
-    var link by rememberSaveable { mutableStateOf("") }
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+internal fun UpdateSheet(draftKey: String, posting: Boolean, onPost: (text: String, link: String) -> Unit, onDismiss: () -> Unit) {
+    // An unsent update survives a closed sheet or a restart (US21).
+    val drafts = rememberDrafts()
+    val restored = remember { drafts.load(draftKey) }
+    var text by rememberSaveable { mutableStateOf(restored?.get("text").orEmpty()) }
+    var link by rememberSaveable { mutableStateOf(restored?.get("link").orEmpty()) }
+    var showRestored by rememberSaveable { mutableStateOf(restored != null) }
+    AutosaveDraft(draftKey, mapOf("text" to text, "link" to link))
+    ActionSheet(onDismiss) {
         Column(
             Modifier
                 .navigationBarsPadding()
                 .padding(horizontal = 24.dp),
         ) {
             Text(stringResource(R.string.update_sheet_title), style = MaterialTheme.typography.headlineSmall)
+            if (showRestored) {
+                Spacer(Modifier.height(12.dp))
+                DraftRestoredNote(onDiscard = { text = ""; link = ""; drafts.clear(draftKey); showRestored = false })
+            }
             Spacer(Modifier.height(16.dp))
             OutlinedTextField(
                 value = text,
@@ -244,12 +260,15 @@ internal fun UpdateSheet(posting: Boolean, onPost: (text: String, link: String) 
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(12.dp))
+            val linkInvalid = link.isNotEmpty() && !looksLikeLink(link)
             OutlinedTextField(
                 value = link,
                 onValueChange = { if (it.length <= LinkMax) link = it.trim() },
                 label = { Text(stringResource(R.string.update_field_link)) },
                 placeholder = { Text(stringResource(R.string.link_placeholder)) },
                 leadingIcon = { Icon(Icons.Rounded.Link, contentDescription = null) },
+                isError = linkInvalid,
+                supportingText = if (linkInvalid) ({ Text(stringResource(R.string.link_invalid)) }) else null,
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
                 modifier = Modifier.fillMaxWidth(),
@@ -285,11 +304,14 @@ private fun LinkDialog(saving: Boolean, onAdd: (label: String, url: String) -> U
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(12.dp))
+                val urlInvalid = url.isNotEmpty() && !looksLikeLink(url)
                 OutlinedTextField(
                     value = url,
                     onValueChange = { if (it.length <= LinkMax) url = it.trim() },
                     label = { Text(stringResource(R.string.link_field_url)) },
                     placeholder = { Text(stringResource(R.string.link_placeholder)) },
+                    isError = urlInvalid,
+                    supportingText = if (urlInvalid) ({ Text(stringResource(R.string.link_invalid)) }) else null,
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
                     modifier = Modifier.fillMaxWidth(),
@@ -306,7 +328,8 @@ private fun LinkDialog(saving: Boolean, onAdd: (label: String, url: String) -> U
 }
 
 /** Something with a dot and no spaces: enough to be worth opening. */
-private fun looksLikeLink(text: String): Boolean = text.length >= 4 && '.' in text && text.none { it.isWhitespace() }
+/** The same web-link policy the backend enforces (see Validators.webLink). */
+private fun looksLikeLink(text: String): Boolean = Validators.webLink(text) != null
 
 internal fun hostOf(url: String): String =
     url.removePrefix("https://").removePrefix("http://").removePrefix("www.").substringBefore('/').ifBlank { url }

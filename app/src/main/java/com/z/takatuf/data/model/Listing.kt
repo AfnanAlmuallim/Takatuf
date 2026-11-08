@@ -142,7 +142,19 @@ enum class ClosedReason {
 
     /** Every place on the team is filled. */
     Full,
+
+    /** The lead marked the project complete (US17). */
+    Completed,
+
+    /** Moderators hid the listing after a report (US20). */
+    Hidden,
 }
+
+/** How a completed project ended: a summary and, ideally, a link to the result (US17). */
+data class Completion(val summary: String, val link: String)
+
+/** A moderator's "details may be outdated" flag, shown until the owner corrects them (R6). */
+data class ListingFlag(val reason: String, val at: Instant?)
 
 data class Listing(
     val id: String,
@@ -162,9 +174,21 @@ data class Listing(
     /** Set for events. */
     val event: EventDetails? = null,
     val members: List<TeamMember> = emptyList(),
+    /** People who left or were removed; rejoining puts them back in [members]. */
+    val formerMembers: List<TeamMember> = emptyList(),
     val pendingLeader: PendingLeader? = null,
+    val completedAt: Instant? = null,
+    val completion: Completion? = null,
+    val hidden: Boolean = false,
+    val flag: ListingFlag? = null,
+    val moderationNote: String = "",
 ) {
+    val isCompleted: Boolean get() = completedAt != null
+
     val memberIds: List<String> get() = members.map { it.uid }
+
+    /** Former members who aren't back on the team; their work can still be confirmed and reviewed. */
+    val departed: List<TeamMember> get() = formerMembers.filter { !isOnTeam(it.uid) }
 
     /** Everyone on the team. The recorded size can include people who aren't on Takatuf. */
     val headcount: Int get() = maxOf(recruitment?.teamSize ?: 0, 1 + members.size)
@@ -181,16 +205,30 @@ data class Listing(
     val skillsWanted: List<String>
         get() = recruitment?.roles.orEmpty().flatMap { it.skills }.distinctBy { it.lowercase() }
 
-    /** Why the listing no longer takes applications (or registrations), or null while it does. */
-    fun closedReason(now: Instant): ClosedReason? = when {
-        status == ListingStatus.Closed -> ClosedReason.ClosedByOwner
-        event != null && !now.isBefore(event.endDate) -> ClosedReason.Ended
-        event?.registrationDeadline?.let { !now.isBefore(it) } == true -> ClosedReason.RegistrationClosed
-        linkedEvent?.endDate?.let { !now.isBefore(it) } == true -> ClosedReason.EventOver
-        recruitment != null && recruitment.openPlaces == 0 -> ClosedReason.Full
-        recruitment?.deadline?.let { !now.isBefore(it) } == true -> ClosedReason.DeadlinePassed
-        else -> null
+    /**
+     * Why the listing no longer takes applications (or registrations), or null while it does.
+     *
+     * Every deadline and end date is exclusive: open strictly before it, closed from that
+     * instant on. A team request copies its event's dates when it's linked, so pass the live
+     * [parentEvent] when it's known; its current end date wins over that copy.
+     */
+    fun closedReason(now: Instant, parentEvent: Listing? = null): ClosedReason? {
+        val linkedEnd = parentEvent?.takeIf { it.id == linkedEvent?.id }?.event?.endDate ?: linkedEvent?.endDate
+        return when {
+            hidden -> ClosedReason.Hidden
+            completedAt != null -> ClosedReason.Completed
+            status == ListingStatus.Closed -> ClosedReason.ClosedByOwner
+            event != null && reached(event.endDate, now) -> ClosedReason.Ended
+            reached(event?.registrationDeadline, now) -> ClosedReason.RegistrationClosed
+            reached(linkedEnd, now) -> ClosedReason.EventOver
+            recruitment != null && recruitment.openPlaces == 0 -> ClosedReason.Full
+            reached(recruitment?.deadline, now) -> ClosedReason.DeadlinePassed
+            else -> null
+        }
     }
+
+    /** True from the [limit] instant on; an unset limit is never reached. */
+    private fun reached(limit: Instant?, now: Instant): Boolean = limit != null && !now.isBefore(limit)
 
     /** The moment that matters most for "closing soon" ordering. */
     val closesAt: Instant?

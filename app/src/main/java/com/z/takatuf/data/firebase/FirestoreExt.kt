@@ -4,19 +4,29 @@ import com.google.android.gms.tasks.Task
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
+import com.z.takatuf.data.AppError
+import com.z.takatuf.data.AppException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Instant
 import java.util.Date
 
-/** Emits the mapped result of every snapshot; closes with the listener's error. */
-internal fun <T> Query.observe(map: (QuerySnapshot) -> T): Flow<T> = callbackFlow {
-    val registration = addSnapshotListener { snapshot, error ->
+/**
+ * Emits the mapped result of every snapshot; closes with the listener's error. With
+ * [includeMetadata], it also emits when a local write reaches the server, so "waiting to send"
+ * states clear (US21).
+ */
+internal fun <T> Query.observe(includeMetadata: Boolean = false, map: (QuerySnapshot) -> T): Flow<T> = callbackFlow {
+    val changes = if (includeMetadata) MetadataChanges.INCLUDE else MetadataChanges.EXCLUDE
+    val registration = addSnapshotListener(changes) { snapshot, error ->
         when {
             error != null -> close(error)
             snapshot != null -> trySend(map(snapshot))
@@ -39,9 +49,24 @@ internal fun <T> DocumentReference.observe(map: (DocumentSnapshot) -> T): Flow<T
  * Firestore applies writes locally at once but only completes the task when the server
  * confirms. Offline, that can take indefinitely, so after a short wait the write is treated
  * as queued: the local cache already shows it and it syncs when the connection returns.
+ * Returns true once the server confirmed it, false while it is still waiting to send; queued
+ * writes are tracked by [SyncTracker] so the app can say so (US21, NFR06).
  */
-internal suspend fun Task<Void>.awaitWrite(timeoutMillis: Long = 10_000) {
-    withTimeoutOrNull(timeoutMillis) { await() }
+internal suspend fun Task<Void>.awaitWrite(timeoutMillis: Long = 10_000): Boolean {
+    val confirmed = withTimeoutOrNull(timeoutMillis) { await(); true } ?: false
+    if (!confirmed) SyncTracker.track(this)
+    return confirmed
+}
+
+/**
+ * Waits for a transaction, which needs the server and can't be queued. Offline, Firestore keeps
+ * retrying for minutes behind a spinner, so after a short wait this fails with a clear message
+ * and the student can retry. Every transaction here is safe to repeat (US21, NFR06).
+ */
+internal suspend fun <T> Task<T>.awaitTransaction(timeoutMillis: Long = 12_000): T = try {
+    withTimeout(timeoutMillis) { await() }
+} catch (_: TimeoutCancellationException) {
+    throw AppException(AppError.Offline)
 }
 
 /** Reads a document's fields, estimating server timestamps that are still pending locally. */

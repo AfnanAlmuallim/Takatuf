@@ -43,7 +43,7 @@ import com.z.takatuf.ui.common.Tag
 /**
  * Optional help with roles: the AI reads what the owner wrote and proposes roles with skills.
  * Each suggestion is added only when the owner taps Add, so they stay in charge of what the
- * listing asks for (charter §6.4).
+ * listing asks for (charter, Technical Environment).
  */
 @Composable
 internal fun RoleSuggestions(

@@ -7,6 +7,7 @@ import com.z.takatuf.data.ApplicationRepository
 import com.z.takatuf.data.ListingRepository
 import com.z.takatuf.data.ProfileRepository
 import com.z.takatuf.data.Session
+import com.z.takatuf.data.TeamRepository
 import com.z.takatuf.data.attempt
 import com.z.takatuf.data.model.Application
 import com.z.takatuf.data.model.ApplicationStatus
@@ -71,7 +72,10 @@ class ApplicantsViewModel(
     listings: ListingRepository,
     private val applications: ApplicationRepository,
     profiles: ProfileRepository,
+    private val teams: TeamRepository,
 ) : ViewModel() {
+
+    private var adopted = false
 
     private val retry = MutableStateFlow(0)
     private val filter = MutableStateFlow(ApplicantFilter.All)
@@ -86,11 +90,17 @@ class ApplicantsViewModel(
     }
 
     private val data = retry.flatMapLatest {
-        combine(listings.observe(listingId), applications.observeForListing(listingId)) { listing, apps ->
+        combine(listings.observeWithLiveEvent(listingId), applications.observeForListing(listingId)) { listing, apps ->
             Data.Loaded(listing, apps) as Data
         }
             .onEach {
                 if (it is Data.Loaded) {
+                    val listing = it.listing
+                    // Applications still pointing at a previous lead are taken over (US22).
+                    if (!adopted && listing != null && listing.ownerId == uid && it.applications.any { app -> app.ownerId != uid }) {
+                        adopted = true
+                        viewModelScope.launch { teams.adoptApplications(listingId, uid) }
+                    }
                     people.request(it.applications.map { app -> app.applicantId })
                     it.listing?.let { listing -> people.request(listing.memberIds + listing.ownerId) }
                 }

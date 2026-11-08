@@ -24,6 +24,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.MilitaryTech
@@ -37,12 +38,11 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
+import com.z.takatuf.ui.common.ActionSheet
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -89,6 +89,7 @@ internal fun PeopleTab(
     onDeclineLead: () -> Unit,
     onRemove: (TeamPerson) -> Unit,
     onLeave: () -> Unit,
+    onReport: (TeamPerson) -> Unit,
 ) {
     val listing = state.listing ?: return
     var editingResponsibility by remember { mutableStateOf<TeamPerson?>(null) }
@@ -151,6 +152,7 @@ internal fun PeopleTab(
                 onEditResponsibility = { editingResponsibility = person },
                 onNominate = { confirmNominate = person },
                 onRemove = { confirmRemove = person },
+                onReport = { onReport(person) },
             )
         }
         item(key = "recruiting") {
@@ -263,6 +265,7 @@ private fun PersonRow(
     onEditResponsibility: () -> Unit,
     onNominate: () -> Unit,
     onRemove: () -> Unit,
+    onReport: () -> Unit,
 ) {
     Row(
         Modifier
@@ -330,24 +333,31 @@ private fun PersonRow(
                 }
             }
         }
-        if (canManage) {
+        if (canManage || !me) {
             var menu by remember { mutableStateOf(false) }
             Box {
                 IconButton(onClick = { menu = true }) {
                     Icon(Icons.Rounded.MoreVert, contentDescription = stringResource(R.string.action_manage_member, person.name))
                 }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    if (!nominated) {
+                    if (canManage && !nominated) {
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.action_make_lead)) },
                             leadingIcon = { Icon(Icons.Rounded.MilitaryTech, contentDescription = null) },
                             onClick = { menu = false; onNominate() },
                         )
                     }
+                    if (canManage) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.action_remove_from_team)) },
+                            leadingIcon = { Icon(Icons.Rounded.PersonRemove, contentDescription = null) },
+                            onClick = { menu = false; onRemove() },
+                        )
+                    }
                     DropdownMenuItem(
-                        text = { Text(stringResource(R.string.action_remove_from_team)) },
-                        leadingIcon = { Icon(Icons.Rounded.PersonRemove, contentDescription = null) },
-                        onClick = { menu = false; onRemove() },
+                        text = { Text(stringResource(R.string.action_report_conduct)) },
+                        leadingIcon = { Icon(Icons.Rounded.Flag, contentDescription = null) },
+                        onClick = { menu = false; onReport() },
                     )
                 }
             }
@@ -358,6 +368,7 @@ private fun PersonRow(
 /** Open places and, for the lead, the two ways to fill them: applicants or a reopened place. */
 @Composable
 private fun Recruiting(listing: Listing, state: WorkspaceUiState, onReviewApplicants: () -> Unit, onReopen: () -> Unit) {
+    if (listing.isCompleted) return
     val open = listing.recruitment?.openPlaces ?: 0
     if (!state.isLead && open == 0) return
     Column(Modifier.padding(horizontal = 20.dp)) {
@@ -444,7 +455,7 @@ private fun ReopenSheet(
     val wasShut = listing.status != ListingStatus.Open || (role?.openings ?: 0) == 0
     val earlier = if (wasShut) pastApplicants.filter { it.roleId == roleId } else emptyList()
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    ActionSheet(onDismiss) {
         Column(
             Modifier
                 .navigationBarsPadding()

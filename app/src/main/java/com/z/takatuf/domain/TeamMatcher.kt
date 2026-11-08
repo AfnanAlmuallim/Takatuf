@@ -79,6 +79,9 @@ enum class KeptReason {
 
     /** More people kept for a role than it has places. */
     RoleOverbooked,
+
+    /** The event has an eligibility rule and this applicant hasn't recorded their year. */
+    EligibilityUnknown,
 }
 
 data class KeptIssue(val applicantId: String, val name: String, val roleTitle: String, val reason: KeptReason)
@@ -89,6 +92,8 @@ data class Recommendation(
     /** Open roles with no eligible applicant at all. */
     val emptyRoles: List<String>,
     val ineligible: List<ApplicantFit>,
+    /** Applicants whose eligibility can't be checked (no year recorded); never suggested. */
+    val unverified: List<ApplicantFit> = emptyList(),
     val needed: List<String>,
     /** Needed skills the current team (lead and members) already covers. */
     val coveredByTeam: List<String>,
@@ -97,7 +102,7 @@ data class Recommendation(
 )
 
 /**
- * Rule-based matching from charter §6.4: a weighted score for each applicant, then a greedy
+ * Rule-based matching from the charter (Technical Environment): a weighted score for each applicant, then a greedy
  * search that keeps adding whoever best complements the team's remaining needs. It never
  * changes membership; it only proposes people to send offers to (US10).
  */
@@ -232,9 +237,12 @@ object TeamMatcher {
         val coveredByTeam = needed.filter { SkillMatcher.normalize(it) in teamKeys }
 
         val ineligible = fits.filter { it.eligibility == Eligibility.Ineligible && it.application.status in considered }
+        // Suggestions use only applicants known to be eligible (charter KPI "recommendation
+        // validity"); those who haven't recorded a year are listed so the owner can ask them.
+        val unverified = fits.filter { it.eligibility == Eligibility.Unknown && it.application.status in considered }
         val pool = fits.filter {
             it.application.status in considered &&
-                it.eligibility != Eligibility.Ineligible &&
+                it.eligibility == Eligibility.Eligible &&
                 (places[it.roleId] ?: 0) > 0 &&
                 !listing.isOnTeam(it.applicantId)
         }
@@ -247,6 +255,9 @@ object TeamMatcher {
         kept.forEach { id ->
             val fit = fits.firstOrNull { it.applicantId == id }
             when {
+                fit != null && fit in unverified -> keptIssues += KeptIssue(
+                    id, fit.application.applicantName, fit.application.roleTitle, KeptReason.EligibilityUnknown,
+                )
                 fit == null || id !in poolIds -> keptIssues += KeptIssue(
                     id,
                     fit?.application?.applicantName.orEmpty(),
@@ -313,8 +324,12 @@ object TeamMatcher {
 
         val coverage = build(Strategy.Coverage, greedy(emptySet()))
         val strongest = build(Strategy.Strongest, strongest())
-        val firstPick = coverage.picks.firstOrNull { it !in keptValid }?.applicantId
-        val alternative = firstPick?.let { build(Strategy.Alternative, greedy(setOf(it))) }
+        // A different team: leave out one of the first option's picks, trying them in order, and
+        // keep the first combination that is no less complete. Leaving out someone who is the
+        // only suitable applicant for their role would just open an avoidable gap.
+        val candidates = coverage.picks.filter { it !in keptValid }.asSequence()
+            .map { build(Strategy.Alternative, greedy(setOf(it.applicantId))) }
+        val alternative = candidates.firstOrNull { it.emptyPlaces <= coverage.emptyPlaces } ?: candidates.firstOrNull()
 
         val options = listOfNotNull(coverage, strongest, alternative)
             .filter { it.picks.isNotEmpty() }
@@ -329,6 +344,7 @@ object TeamMatcher {
             keptIssues = keptIssues,
             emptyRoles = emptyRoles,
             ineligible = ineligible,
+            unverified = unverified,
             needed = needed,
             coveredByTeam = coveredByTeam,
             applicantsPerRole = pool.groupingBy { it.roleId }.eachCount(),

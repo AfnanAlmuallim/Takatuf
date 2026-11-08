@@ -35,6 +35,8 @@ import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Diversity3
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Flag
+import androidx.compose.material.icons.rounded.TaskAlt
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.HourglassBottom
 import androidx.compose.material.icons.rounded.Lock
@@ -42,6 +44,7 @@ import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.Timelapse
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -83,10 +86,12 @@ import com.z.takatuf.R
 import com.z.takatuf.data.model.Application
 import com.z.takatuf.data.model.ApplicationStatus
 import com.z.takatuf.data.model.ClosedReason
+import com.z.takatuf.data.model.EligibleLevel
 import com.z.takatuf.data.model.EventFormat
 import com.z.takatuf.data.model.Listing
 import com.z.takatuf.data.model.ListingKind
 import com.z.takatuf.data.model.ListingStatus
+import com.z.takatuf.data.model.ReportTarget
 import com.z.takatuf.data.model.Role
 import com.z.takatuf.domain.Dates
 import com.z.takatuf.domain.SkillMatcher
@@ -117,6 +122,8 @@ import com.z.takatuf.ui.common.formatEventRange
 import com.z.takatuf.ui.common.relativeTime
 import com.z.takatuf.ui.common.seatsDescription
 import com.z.takatuf.ui.common.teamSizeText
+import com.z.takatuf.ui.moderation.ReportLauncher
+import com.z.takatuf.ui.moderation.ReportSubject
 import com.z.takatuf.ui.navigation.ListingRoute
 import com.z.takatuf.ui.theme.TakatufTheme
 import androidx.compose.ui.platform.LocalContext
@@ -135,7 +142,7 @@ fun ListingDetailScreen(
     onOpenTeam: (String) -> Unit,
 ) {
     val viewModel = appViewModel { c, handle: SavedStateHandle ->
-        ListingDetailViewModel(handle.toRoute<ListingRoute>().id, c.session, c.listings, c.applications, c.saved)
+        ListingDetailViewModel(handle.toRoute<ListingRoute>().id, c.session, c.listings, c.applications, c.saved, c.notifications, c.drafts)
     }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
@@ -146,6 +153,7 @@ fun ListingDetailScreen(
     var confirmWithdraw by rememberSaveable { mutableStateOf(false) }
     var confirmClose by rememberSaveable { mutableStateOf(false) }
     var confirmDecline by rememberSaveable { mutableStateOf(false) }
+    var reporting by rememberSaveable { mutableStateOf(false) }
     val uriHandler = LocalUriHandler.current
     val openUrl: (String) -> Unit = { url ->
         try {
@@ -229,6 +237,7 @@ fun ListingDetailScreen(
                             onEdit = { onEdit(listing) },
                             onCloseRecruitment = { confirmClose = true },
                             onReopenRecruitment = { viewModel.setRecruitmentOpen(true) },
+                            onReport = { reporting = true },
                             modifier = Modifier.onSizeChanged { heroHeight = it.height },
                         )
                         Body(
@@ -292,6 +301,13 @@ fun ListingDetailScreen(
                 }
             },
             dismissButton = { TextButton(onClick = { confirmDecline = false }) { Text(stringResource(R.string.action_cancel)) } },
+        )
+    }
+    if (reporting && listing != null) {
+        ReportLauncher(
+            ReportSubject(ReportTarget.Listing, listing.id, "listings/${listing.id}", listing.title, listing.ownerId, listing.id),
+            snackbar,
+            onDismiss = { reporting = false },
         )
     }
     if (confirmClose) {
@@ -371,6 +387,7 @@ private fun Hero(
     onEdit: () -> Unit,
     onCloseRecruitment: () -> Unit,
     onReopenRecruitment: () -> Unit,
+    onReport: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = TakatufTheme.colors
@@ -395,19 +412,26 @@ private fun Hero(
                     tint = colors.onHero,
                 )
             }
-            if (state.isOwner) {
-                var menu by remember { mutableStateOf(false) }
-                Box {
-                    IconButton(onClick = { menu = true }, colors = heroButtons) {
-                        Icon(Icons.Rounded.MoreVert, contentDescription = stringResource(R.string.action_more))
-                    }
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            var menu by remember { mutableStateOf(false) }
+            Box {
+                IconButton(onClick = { menu = true }, colors = heroButtons) {
+                    Icon(Icons.Rounded.MoreVert, contentDescription = stringResource(R.string.action_more))
+                }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    if (!state.isOwner) {
+                        // Anyone can flag a listing that looks wrong; moderators decide (US20).
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.action_report_listing)) },
+                            leadingIcon = { Icon(Icons.Rounded.Flag, contentDescription = null) },
+                            onClick = { menu = false; onReport() },
+                        )
+                    } else {
                         DropdownMenuItem(
                             text = { Text(stringResource(if (listing.kind == ListingKind.Event) R.string.action_edit_event else R.string.action_edit_listing)) },
                             leadingIcon = { Icon(Icons.Rounded.Edit, contentDescription = null) },
                             onClick = { menu = false; onEdit() },
                         )
-                        if (listing.kind.recruits) {
+                        if (listing.kind.recruits && !listing.isCompleted) {
                             if (listing.status == ListingStatus.Open) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.action_close_recruitment)) },
@@ -449,6 +473,26 @@ private fun Hero(
             Spacer(Modifier.height(24.dp))
             val recruitment = listing.recruitment
             when {
+                recruitment != null && listing.isCompleted -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    SeatRing(
+                        taken = listing.headcount,
+                        open = 0,
+                        description = seatsDescription(listing.headcount, 0),
+                        size = 104.dp,
+                        takenColor = colors.seatTakenOnHero,
+                        openColor = colors.seatOpenOnHero,
+                        trackColor = colors.onHero.copy(alpha = 0.2f),
+                    )
+                    Spacer(Modifier.width(20.dp))
+                    Column {
+                        Text(listing.headcount.toString(), style = MaterialTheme.typography.displayMedium, color = colors.onHero)
+                        Text(
+                            pluralStringResource(R.plurals.hero_completed_team, listing.headcount, listing.headcount),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = colors.onHeroVariant,
+                        )
+                    }
+                }
                 recruitment != null -> Row(verticalAlignment = Alignment.CenterVertically) {
                     val mine = if (state.myApplication?.status?.isActive == true) 1 else 0
                     SeatRing(
@@ -537,7 +581,7 @@ private fun Body(
     onOpenUrl: (String) -> Unit,
 ) {
     val now = remember { Instant.now() }
-    val closed = listing.closedReason(now)
+    val closed = listing.closedReason(now, state.event)
     Column(Modifier.padding(horizontal = 20.dp)) {
         Spacer(Modifier.height(20.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -552,7 +596,12 @@ private fun Body(
         }
         if (closed != null) {
             Spacer(Modifier.height(16.dp))
-            ClosedNotice(listing, closed)
+            ClosedNotice(listing, closed, state.isOwner, onOpenUrl)
+        }
+        val flag = listing.flag
+        if (flag != null && !listing.hidden) {
+            Spacer(Modifier.height(12.dp))
+            FlagNotice(flag.reason, state.isOwner)
         }
         when (listing.kind) {
             ListingKind.Event -> EventBody(state, listing, onOpenListing, onOpenPerson, onOpenUrl)
@@ -562,8 +611,12 @@ private fun Body(
 }
 
 @Composable
-private fun ClosedNotice(listing: Listing, reason: ClosedReason) {
+private fun ClosedNotice(listing: Listing, reason: ClosedReason, isOwner: Boolean, onOpenUrl: (String) -> Unit) {
     val text = when (reason) {
+        ClosedReason.Completed -> stringResource(R.string.closed_completed_long, formatDay(Dates.startDate(listing.completedAt ?: Instant.now())))
+        ClosedReason.Hidden ->
+            if (isOwner && listing.moderationNote.isNotBlank()) stringResource(R.string.closed_hidden_owner, listing.moderationNote)
+            else stringResource(R.string.closed_hidden_long)
         ClosedReason.ClosedByOwner -> stringResource(R.string.closed_by_owner_long)
         ClosedReason.DeadlinePassed -> stringResource(R.string.closed_deadline_long, formatDay(Dates.lastDay(listing.recruitment?.deadline ?: Instant.now())))
         ClosedReason.EventOver -> stringResource(R.string.closed_event_over_long)
@@ -577,11 +630,54 @@ private fun ClosedNotice(listing: Listing, reason: ClosedReason) {
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.Top) {
-            Icon(Icons.Rounded.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+            Icon(
+                if (reason == ClosedReason.Completed) Icons.Rounded.TaskAlt else Icons.Rounded.Lock,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
             Spacer(Modifier.width(12.dp))
             Column {
                 Text(closedLabel(reason), style = MaterialTheme.typography.titleSmall)
                 Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                // A finished project shows what it produced (US17).
+                val completion = listing.completion
+                if (reason == ClosedReason.Completed && completion != null) {
+                    if (completion.summary.isNotBlank()) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(completion.summary, style = MaterialTheme.typography.bodyMedium)
+                    }
+                    if (completion.link.isNotBlank()) {
+                        TextButton(onClick = { onOpenUrl(completion.link) }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                            Text(stringResource(R.string.complete_open_result))
+                            Spacer(Modifier.width(4.dp))
+                            Icon(Icons.AutoMirrored.Rounded.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** A moderator thinks the details may be out of date; the owner fixes it by editing (R6). */
+@Composable
+private fun FlagNotice(reason: String, isOwner: Boolean) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.Top) {
+            Icon(Icons.Rounded.Flag, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text(stringResource(R.string.flag_notice_title), style = MaterialTheme.typography.titleSmall)
+                Text(
+                    if (isOwner) stringResource(R.string.flag_notice_owner, reason) else stringResource(R.string.flag_notice_body, reason),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
@@ -753,6 +849,7 @@ private fun LinkedEventCard(listing: Listing, event: Listing?, onOpenListing: (S
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (start != null && end != null) Fact(Icons.Rounded.CalendarMonth, formatEventRange(context, start, end))
                 Fact(Icons.Rounded.Groups, teamSizeText(details?.teamSizeMin ?: linked.teamSizeMin, details?.teamSizeMax ?: linked.teamSizeMax))
+                eligibleOnly(details?.eligibleLevel ?: linked.eligibleLevel)?.let { Fact(Icons.Rounded.School, it) }
                 details?.registrationDeadline?.let { Fact(Icons.Rounded.HourglassBottom, stringResource(R.string.registration_closes_on, formatDay(Dates.lastDay(it)))) }
             }
             if (!details?.eligibility.isNullOrBlank()) {
@@ -822,6 +919,16 @@ private fun EventBody(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+    // Event details can change after they're shared; say when they last did (risk R6).
+    val updated = listing.updatedAt
+    val created = listing.createdAt
+    if (updated != null && created != null && updated.isAfter(created.plusSeconds(60))) {
+        Text(
+            stringResource(R.string.event_details_updated, relativeTime(updated)),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
     if (event.eligibility.isNotBlank()) {
         Spacer(Modifier.height(20.dp))
         SectionTitle(stringResource(R.string.section_eligibility))
@@ -831,6 +938,7 @@ private fun EventBody(
     SectionTitle(stringResource(R.string.section_rules))
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Fact(Icons.Rounded.Groups, teamSizeText(event.teamSizeMin, event.teamSizeMax))
+        eligibleOnly(event.eligibleLevel)?.let { Fact(Icons.Rounded.School, it) }
         event.registrationDeadline?.let { Fact(Icons.Rounded.HourglassBottom, stringResource(R.string.registration_closes_on, formatDay(Dates.lastDay(it)))) }
     }
     if (listing.description.isNotBlank()) {
@@ -858,11 +966,20 @@ private fun EventBody(
                         myApplication = null,
                         isOwn = team.ownerId == state.myUid,
                         startPadding = 0.dp,
+                        parentEvent = listing,
                     )
                 }
             }
         }
     }
+}
+
+/** "Undergraduates only" when the event restricts who may enter; null when anyone can. */
+@Composable
+private fun eligibleOnly(level: EligibleLevel): String? = when (level) {
+    EligibleLevel.Undergraduate -> stringResource(R.string.eligible_only_undergraduate)
+    EligibleLevel.Graduate -> stringResource(R.string.eligible_only_graduate)
+    EligibleLevel.Any -> null
 }
 
 @Composable
@@ -896,7 +1013,7 @@ private fun DetailActionBar(
     onConfirmInterest: () -> Unit,
 ) {
     val now = remember(state.myApplication) { Instant.now() }
-    val closed = listing.closedReason(now)
+    val closed = listing.closedReason(now, state.event)
     val application = state.myApplication
     BottomActionBar {
         when {
@@ -925,7 +1042,7 @@ private fun DetailActionBar(
             }
             state.isOwner -> {
                 val counts = state.applicantCounts
-                val recruiting = (listing.recruitment?.openPlaces ?: 0) > 0 || (counts?.active ?: 0) > 0
+                val recruiting = !listing.isCompleted && ((listing.recruitment?.openPlaces ?: 0) > 0 || (counts?.active ?: 0) > 0)
                 if (recruiting) {
                     PrimaryButton(
                         text = when {
@@ -989,6 +1106,11 @@ private fun DetailActionBar(
                 }
             }
             application?.status?.isActive == true -> AppliedBar(application, busy = state.busy, onWithdraw = onWithdraw)
+            application?.status == ApplicationStatus.NotSelected || application?.status == ApplicationStatus.Closed -> Text(
+                stringResource(if (application.status == ApplicationStatus.NotSelected) R.string.application_not_selected else R.string.application_closed),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             application?.status == ApplicationStatus.Removed -> Text(
                 stringResource(R.string.removed_from_team),
                 style = MaterialTheme.typography.bodyMedium,
