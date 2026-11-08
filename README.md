@@ -1,175 +1,141 @@
-# Takatuf | تكاتف
+<p align="center">
+  <img src="app/src/main/res/drawable-nodpi/takatuf_mark.webp" alt="Takatuf logo" width="88">
+</p>
 
-Android app built with Kotlin, Jetpack Compose and Firebase for student team formation
-and collaboration. This source update covers **Sprints 1–3**, Android version **0.3.2**
-(version code **6**). See [CHANGELOG.md](CHANGELOG.md) for the changes and preparation checks.
+<h1 align="center">Takatuf | تكاتف</h1>
 
-- **Sprint 1 (US01–US08):** accounts, Skill Passports and visibility, project/event/team-request
-  listings, discovery, saved items, applications and applicant shortlisting.
-- **Sprint 2 (US09–US16):** applicant fit, complementary team suggestions, comparison and
-  retained candidates, offers and joining confirmation, shared workspaces, milestones,
-  reopening vacancies, departure and leadership handover.
-- **Sprint 3 (US17–US24):** participation and contribution records, completion evidence,
-  participant feedback and disputes, notifications, reporting and administrator moderation,
-  supported-form draft recovery, pending-sync feedback, access checks and action logs.
-  Includes recommendation evaluation and backup/restore tools.
+<p align="center">
+  <strong>Find the right teammates. Build something together.</strong><br>
+  An Android platform for student team formation and collaboration.
+</p>
 
-## Project layout
+<p align="center">
+  <img alt="Project status: completed" src="https://img.shields.io/badge/Project-Completed-237A57">
+  <img alt="Version 0.3.2" src="https://img.shields.io/badge/Version-0.3.2-315C99">
+  <img alt="Android 8.0 and above" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84">
+</p>
 
-```text
-app/src/main/java/com/z/takatuf/
-  data/          Firebase repositories, models, drafts, sync tracking and optional AI client
-  domain/        Fit scoring, team matching, validation and date rules
-  notify/        Android notifications and background inbox/reminder checks
-  ui/            Compose screens, navigation, theme and shared components
-app/src/test/    Unit, boundary, regression and recommendation-evaluation tests
-firebase/
-  firestore.rules         Identity, visibility, membership and role permissions
-  firestore.indexes.json  Query indexes
-  tests/                  Rules suites and opt-in live smoke scripts
-  seed/                   Synthetic emulator data
-  backup/                 Backup, guarded restore and emulator verification tools
-```
+<p align="center">
+  <a href="#what-you-can-do">Features</a> ·
+  <a href="#run-locally">Run locally</a> ·
+  <a href="docs/DEVELOPMENT.md">Developer guide</a> ·
+  <a href="CHANGELOG.md">Changelog</a>
+</p>
 
-## Build
+## About
 
-Open this folder in Android Studio and use its bundled Gradle JDK with Android SDK 36
-installed. The Gradle wrapper is included; the app supports Android 8.0 (API 26) and above.
+Finding a student project is only the beginning. Building a team means understanding what
+people can contribute, choosing complementary skills, and keeping everyone connected as the
+work progresses.
+
+Takatuf brings that journey into one place. Students discover projects and events, present
+their capabilities through a **Skill Passport**, apply for roles, and collaborate in a shared
+team workspace. Contributions and feedback then become part of their participation history.
+
+**This completed senior project was developed at Prince Sultan University.** Version 0.3.2
+brings together the functionality delivered across all three project sprints.
+
+## What you can do
+
+| Area | What Takatuf offers |
+| --- | --- |
+| **Discover opportunities** | Browse, search, filter and save student projects, competitions, hackathons and event-linked team requests. |
+| **Present your skills** | Build a Skill Passport with skills, experience, interests, availability and evidence links, with profile visibility controls. |
+| **Form a team** | Apply for roles, shortlist applicants, compare complementary team suggestions and confirm membership through offers. |
+| **Work together** | Share responsibilities, milestones, progress updates and deliverable links; manage vacancies, departures and leadership handover. |
+| **Record participation** | Capture contributions and completion evidence, give participant feedback and identify disputed reviews. |
+| **Stay informed** | Receive recruitment and workspace notices, recover supported drafts, and report content or conduct for administrator review. |
+
+### How team matching works
+
+Team recommendations consider the request's roles, applicants' declared capabilities and
+availability, eligibility, and the skills already present in the team. Suggestions explain
+coverage and remaining gaps so owners can compare their options.
+
+**The owner chooses the team, and each applicant confirms joining.** Matching runs on the
+device using rule-based scoring. Optional AI assistance helps describe roles and skills in a
+listing; students choose which suggestions to use.
+
+## From opportunity to participation
+
+1. **Create your passport** — describe your skills, interests and availability.
+2. **Find or publish an opportunity** — explore projects and events, or recruit for your own.
+3. **Build a complementary team** — review applicants, compare suggestions and send offers.
+4. **Collaborate in the workspace** — agree on responsibilities and track milestones and updates.
+5. **Record the outcome** — keep contribution evidence and share feedback on the team experience.
+
+## Technology
+
+| Layer | Implementation |
+| --- | --- |
+| Android app | Kotlin, Jetpack Compose and Material 3 |
+| App structure | ViewModels, coroutines, Flow and repository-based data access |
+| Backend | Firebase Authentication and Cloud Firestore |
+| Permissions | Firestore security rules for identity, visibility, ownership and membership |
+| Background work | WorkManager for inbox checks and milestone reminders |
+| Testing | JUnit, Firebase Emulator Suite and synthetic recommendation evaluation |
+
+The app supports **Android 8.0 (API 26) and above**, with compile and target SDK 36.
+
+## Run locally
+
+Use Android Studio with its bundled Gradle JDK, Android SDK 36, Node.js/npm, and the Firebase
+CLI. Start with a local Android emulator and the included synthetic data.
+
+**1. Clone and open the project in Android Studio.**
 
 ```sh
-./gradlew :app:testDebugUnitTest
-./gradlew :app:assembleDebug :app:assembleRelease :app:lintDebug
+git clone https://github.com/AfnanAlmuallim/Takatuf.git
+cd Takatuf
 ```
 
-A fresh checkout builds without an `.env` file; optional AI suggestions are disabled.
-Local credentials, IDE/build output, account-state files, database exports, assessment reports
-and evidence are excluded from this source update. Publishing source does not deploy Firebase
-rules or indexes.
-
-## Firebase setup
-
-`app/google-services.json` targets the existing `takatuf-5a37f` project.
-
-1. In Firebase Authentication, enable **Email/Password**.
-2. Ensure the default Cloud Firestore database exists.
-3. Install Node.js/npm and the Firebase CLI; emulator tests also require Java.
-4. Install the locked dependencies and deploy rules/indexes when updating the backend:
-
-   ```sh
-   cd firebase
-   npm ci
-   firebase login
-   npm run deploy:firestore
-   ```
-
-The app's queries require the indexes. Backend deployment is a separate operation from a
-GitHub push. Keep administrator provisioning in trusted Firebase administration; the app
-does not let students grant themselves moderation access.
-
-If `firebase` is not on PATH, run scripts with the npm-distributed CLI:
+**2. Start Firebase emulators** in a terminal at the project root:
 
 ```sh
 cd firebase
-npm exec --yes --package=firebase-tools@latest -- npm run test:rules
-```
-
-## Local emulator development
-
-```sh
-cd firebase
+npm ci
 npm run emulators
-# In a second terminal, from firebase/:
+```
+
+**3. Load demo data** in a second terminal at the project root:
+
+```sh
+cd firebase
 npm run seed
 ```
 
-Build for the Android emulator, where `10.0.2.2` refers to the host computer:
+**4. Start an Android emulator**, then install the app from a third terminal at the project root:
 
 ```sh
-./gradlew installDebug -Ptakatuf.emulatorHost=10.0.2.2
+./gradlew :app:installDebug -Ptakatuf.emulatorHost=10.0.2.2
 ```
 
-Without that property, the app uses the Firebase project from `google-services.json`.
-The synthetic seed includes students, events, recruitment, working and completed teams,
-participation, contributions, feedback and inbox examples. Sign in with a seeded student,
-for example `sara@takatuf.test` / `Takatuf2026` (local test data only).
+Open Takatuf and sign in with **`sara@takatuf.test` / `Takatuf2026`**.
+These credentials belong to the synthetic local dataset. It includes recruitment, working
+and completed teams, contributions, feedback, notifications and moderation examples.
 
-## Notifications and recovery
+No AI key is needed to explore the core app. See the [developer guide](docs/DEVELOPMENT.md)
+for Firebase CLI setup, cloud configuration, optional AI assistance and troubleshooting.
 
-The inbox shows read/unread notices and opens the related item. Android notifications require
-system permission on supported Android versions. New inbox items are observed while the app
-process runs; WorkManager checks in the background approximately every 15 minutes when
-connected and schedules due-milestone reminders. This is not an immediate FCM push service.
+## Quality and validation
 
-Supported forms save local drafts. Pending writes and connection errors have visible states.
-Firestore rules enforce access independently of the interface, including after departure or
-leadership changes. Optional AI failure leaves the recruitment workflow usable.
+The final source update was validated on **8 November 2026**:
 
-## Optional AI role suggestions
+| Check | Result |
+| --- | --- |
+| Android unit tests | **83 passed** |
+| Firebase security-rule tests | **301 passed** |
+| Debug and release builds | **Passed** |
+| Android lint task | **Passed** |
 
-The listing editor can suggest roles and skills from a project's outcome and description.
-Students choose which suggestions to add. Applicant ranking and team matching remain
-rule-based and run on the device.
+These checks cover domain logic, regression cases and backend permission boundaries.
+Recommendation evaluation uses synthetic scenarios. Live-cloud checks and device journeys
+were separate from this repository validation; see the [changelog](CHANGELOG.md) for its scope.
 
-Copy `.env.example` to `.env` and configure your own development key:
+## Explore the repository
 
-```dotenv
-OPENAI_API_KEY=your-development-key
-OPENAI_MODEL=gpt-6-luna
-AI_DAILY_LIMIT=20
-```
-
-Gradle reads these settings at build time; rebuild after changing them. Without a key, the
-editor hides suggestions. Network failures and daily limits produce a recoverable message.
-
-> The key is embedded in the APK. Keep builds containing a real key private and use a
-> project-specific budget cap. Public distribution needs a server-side API integration.
-> Never commit real credentials.
-
-## Tests and evaluation
-
-```sh
-./gradlew :app:testDebugUnitTest
-cd firebase
-npm ci
-npm run test:rules
-```
-
-The rules command runs the main suite and Sprint 3 extended suite sequentially against
-`demo-takatuf-rules`, an isolated emulator project. Sequential execution prevents the suites'
-database resets from interfering with each other.
-
-Unit tests include retained Sprint 1 and Sprint 2 checks, Sprint 3 record and validation
-boundaries, and synthetic recommendation comparisons. Evaluation reports are generated under
-`app/build/evaluation/`; synthetic results do not establish usefulness with real students.
-
-The following scripts are opt-in **live-cloud** checks. They create throwaway accounts/data
-in the configured project, so use them only when intending to exercise that backend and
-clean up afterwards:
-
-```sh
-cd firebase
-npm run smoke
-npm run smoke:cleanup
-```
-
-Live checks and device journeys are separate from the repository preparation checks recorded
-in the changelog.
-
-## Backup and restore
-
-Backup scripts use `firebase-admin`. For a live backup, set `GOOGLE_APPLICATION_CREDENTIALS`
-to an external service-account key with the required access. Keep keys and exports outside Git.
-Firebase Authentication account exports are separate from Firestore document backups.
-
-For local emulator data:
-
-```sh
-cd firebase
-FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 npm run backup
-FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 npm run restore -- backups/<backup-file>.json
-FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 npm run backup:verify
-```
-
-Verification wipes and restores the emulator dataset and compares the documents. Use it only
-on a disposable emulator dataset. Restore replaces documents at the paths in the backup;
-restoring to a live project additionally requires the explicit `--production` flag.
+- [Developer guide](docs/DEVELOPMENT.md) — setup, architecture, tests, notifications and maintenance.
+- [Changelog](CHANGELOG.md) — delivery history across the three sprints.
+- [Android source](app/src/main/java/com/z/takatuf) — app features, data access and matching logic.
+- [Android tests](app/src/test/java/com/z/takatuf) — unit, regression and recommendation checks.
+- [Firebase backend](firebase) — rules, indexes, emulator data and maintenance tools.
