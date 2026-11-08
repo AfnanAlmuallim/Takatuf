@@ -65,6 +65,7 @@ import androidx.navigation.toRoute
 import com.z.takatuf.R
 import com.z.takatuf.data.Catalog
 import com.z.takatuf.data.RoleTemplates
+import com.z.takatuf.data.model.EligibleLevel
 import com.z.takatuf.data.model.EventFormat
 import com.z.takatuf.data.model.EventType
 import com.z.takatuf.data.model.ListingKind
@@ -106,6 +107,7 @@ fun EditorScreen(
             eventId = route.eventId,
             session = c.session,
             listings = c.listings,
+            ai = c.ai,
             teamTitleFor = { title -> resources.getString(R.string.team_default_title, title) },
         )
     }
@@ -176,6 +178,15 @@ fun EditorScreen(
 }
 
 @Composable
+private fun eligibleLevelLabel(level: EligibleLevel): String = stringResource(
+    when (level) {
+        EligibleLevel.Any -> R.string.eligible_any
+        EligibleLevel.Undergraduate -> R.string.eligible_undergraduate
+        EligibleLevel.Graduate -> R.string.eligible_graduate
+    },
+)
+
+@Composable
 private fun editorTitle(state: EditorUiState): String = stringResource(
     when {
         state.isEditing && state.kind == ListingKind.Event -> R.string.action_edit_event
@@ -231,6 +242,17 @@ private fun RecruitmentForm(state: EditorUiState, vm: EditorViewModel, onShareEv
         style = MaterialTheme.typography.bodyMedium,
         color = if (Field.Roles in state.errors) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
     )
+    if (state.aiAvailable) {
+        Spacer(Modifier.height(12.dp))
+        RoleSuggestions(
+            state = state,
+            onSuggest = vm::suggestRoles,
+            onAccept = vm::acceptSuggestion,
+            onAcceptAll = vm::acceptAllSuggestions,
+            onDismiss = vm::dismissSuggestion,
+            onDismissAll = vm::dismissSuggestions,
+        )
+    }
     Spacer(Modifier.height(12.dp))
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         state.roles.forEach { role -> RoleSummary(role, onClick = { editingRole = role.id }) }
@@ -291,8 +313,10 @@ private fun RecruitmentForm(state: EditorUiState, vm: EditorViewModel, onShareEv
             label = stringResource(R.string.editor_team_size),
             value = state.teamSize,
             onValueChange = { v -> vm.update { it.copy(teamSize = v, errors = it.errors - Field.TeamSize) } },
-            range = 1..teamMax.coerceAtLeast(state.teamSize),
+            range = state.minTeamSize..teamMax.coerceAtLeast(state.teamSize).coerceAtLeast(state.minTeamSize),
             supporting = when {
+                Field.TeamSize in state.errors && state.teamSize < state.minTeamSize ->
+                    pluralStringResource(R.plurals.editor_team_size_members, state.memberCount, state.memberCount)
                 Field.TeamSize in state.errors && eventMax != null ->
                     pluralStringResource(R.plurals.editor_team_size_over, eventMax, eventMax, state.teamSize + state.openPlaces)
                 else -> pluralStringResource(R.plurals.editor_team_summary, state.openPlaces, state.teamSize + state.openPlaces, state.openPlaces)
@@ -566,6 +590,21 @@ private fun EventForm(state: EditorUiState, vm: EditorViewModel) {
         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
         minLines = 2,
         modifier = Modifier.fillMaxWidth(),
+    )
+    Spacer(Modifier.height(8.dp))
+    Text(stringResource(R.string.editor_eligible_level), style = MaterialTheme.typography.labelLarge)
+    Spacer(Modifier.height(8.dp))
+    ChoiceRow(
+        options = EligibleLevel.entries,
+        selected = state.eligibleLevel,
+        onSelect = { level -> vm.update { it.copy(eligibleLevel = level) } },
+        label = { eligibleLevelLabel(it) },
+    )
+    Spacer(Modifier.height(4.dp))
+    Text(
+        stringResource(R.string.editor_eligible_level_hint),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 
     Spacer(Modifier.height(20.dp))

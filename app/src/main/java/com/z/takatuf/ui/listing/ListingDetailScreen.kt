@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.BookmarkBorder
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Diversity3
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.HourglassBottom
@@ -41,7 +42,6 @@ import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.Schedule
-import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.Timelapse
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -91,7 +91,10 @@ import com.z.takatuf.data.model.Role
 import com.z.takatuf.domain.Dates
 import com.z.takatuf.domain.SkillMatcher
 import com.z.takatuf.ui.appViewModel
+import com.z.takatuf.ui.common.ApplicationStatusTag
 import com.z.takatuf.ui.common.BottomActionBar
+import com.z.takatuf.ui.common.SecondaryButton
+import com.z.takatuf.ui.common.offerDeadlineText
 import com.z.takatuf.ui.common.DeadlineFact
 import com.z.takatuf.ui.common.EmptyState
 import com.z.takatuf.ui.common.ErrorState
@@ -129,6 +132,7 @@ fun ListingDetailScreen(
     onReviewApplicants: (String) -> Unit,
     onEdit: (Listing) -> Unit,
     onFindTeammates: (eventId: String) -> Unit,
+    onOpenTeam: (String) -> Unit,
 ) {
     val viewModel = appViewModel { c, handle: SavedStateHandle ->
         ListingDetailViewModel(handle.toRoute<ListingRoute>().id, c.session, c.listings, c.applications, c.saved)
@@ -141,6 +145,7 @@ fun ListingDetailScreen(
     var showApply by rememberSaveable { mutableStateOf(false) }
     var confirmWithdraw by rememberSaveable { mutableStateOf(false) }
     var confirmClose by rememberSaveable { mutableStateOf(false) }
+    var confirmDecline by rememberSaveable { mutableStateOf(false) }
     val uriHandler = LocalUriHandler.current
     val openUrl: (String) -> Unit = { url ->
         try {
@@ -153,6 +158,11 @@ fun ListingDetailScreen(
     // Close the sheet once the application went through.
     val appliedAt = state.appliedAt
     androidx.compose.runtime.LaunchedEffect(appliedAt) { if (appliedAt != 0L) showApply = false }
+    // Accepting an offer opens the team's workspace straight away.
+    androidx.compose.runtime.LaunchedEffect(state.joinedAt) {
+        val id = state.listing?.id
+        if (state.joinedAt != 0L && id != null) onOpenTeam(id)
+    }
 
     val listing = state.listing
     Scaffold(
@@ -168,6 +178,10 @@ fun ListingDetailScreen(
                     onReviewApplicants = { onReviewApplicants(listing.id) },
                     onFindTeammates = { onFindTeammates(listing.id) },
                     onOpenSource = { listing.event?.sourceUrl?.let(openUrl) },
+                    onOpenTeam = { onOpenTeam(listing.id) },
+                    onAcceptOffer = viewModel::acceptOffer,
+                    onDeclineOffer = { confirmDecline = true },
+                    onConfirmInterest = viewModel::confirmInterest,
                 )
             }
         },
@@ -265,6 +279,19 @@ fun ListingDetailScreen(
             dismissButton = {
                 TextButton(onClick = { confirmWithdraw = false }) { Text(stringResource(R.string.action_keep_application)) }
             },
+        )
+    }
+    if (confirmDecline && listing != null) {
+        AlertDialog(
+            onDismissRequest = { confirmDecline = false },
+            title = { Text(stringResource(R.string.decline_offer_title)) },
+            text = { Text(stringResource(R.string.decline_offer_body, listing.title)) },
+            confirmButton = {
+                TextButton(onClick = { confirmDecline = false; viewModel.declineOffer() }) {
+                    Text(stringResource(R.string.action_decline))
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmDecline = false }) { Text(stringResource(R.string.action_cancel)) } },
         )
     }
     if (confirmClose) {
@@ -448,10 +475,10 @@ private fun Hero(
                             style = MaterialTheme.typography.bodyMedium,
                             color = colors.onHeroVariant,
                         )
-                        if (mine == 1) {
+                        if (mine == 1 || (state.onTeam && !state.isOwner)) {
                             Spacer(Modifier.height(6.dp))
                             Text(
-                                text = stringResource(R.string.hero_your_seat),
+                                text = stringResource(if (mine == 1) R.string.hero_your_seat else R.string.hero_on_team),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = colors.seatOpenOnHero,
                             )
@@ -542,6 +569,7 @@ private fun ClosedNotice(listing: Listing, reason: ClosedReason) {
         ClosedReason.EventOver -> stringResource(R.string.closed_event_over_long)
         ClosedReason.Ended -> stringResource(R.string.closed_ended_long, formatDay(Dates.lastDay(listing.event?.endDate ?: Instant.now())))
         ClosedReason.RegistrationClosed -> stringResource(R.string.closed_registration_long)
+        ClosedReason.Full -> stringResource(R.string.closed_full_long)
     }
     Surface(
         shape = RoundedCornerShape(16.dp),
@@ -569,7 +597,7 @@ private fun RecruitingBody(
     onOpenUrl: (String) -> Unit,
 ) {
     val recruitment = listing.recruitment ?: return
-    val canApply = !state.isOwner && closed == null && state.myApplication?.status?.isActive != true
+    val canApply = !state.onTeam && closed == null && state.myApplication.let { it == null || it.status.canReapply }
     if (listing.kind == ListingKind.Team) {
         Spacer(Modifier.height(24.dp))
         LinkedEventCard(listing, state.event, onOpenListing, onOpenUrl)
@@ -578,6 +606,10 @@ private fun RecruitingBody(
         Spacer(Modifier.height(24.dp))
         SectionTitle(stringResource(if (listing.kind == ListingKind.Team) R.string.section_team_goal else R.string.section_outcome))
         Text(recruitment.outcome, style = MaterialTheme.typography.bodyLarge)
+    }
+    if (listing.members.isNotEmpty()) {
+        Spacer(Modifier.height(24.dp))
+        TeamSoFar(listing)
     }
     Spacer(Modifier.height(24.dp))
     SectionTitle(stringResource(R.string.section_roles))
@@ -603,6 +635,38 @@ private fun RecruitingBody(
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+}
+
+/** Who's already on the team, so applicants can see who they'd be working with. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TeamSoFar(listing: Listing) {
+    SectionTitle(pluralStringResource(R.plurals.team_people, listing.headcount, listing.headcount))
+    val offApp = listing.headcount - listing.members.size - 1
+    if (offApp > 0) {
+        Text(
+            pluralStringResource(R.plurals.people_off_app, offApp, offApp),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(8.dp))
+    }
+    val people = listOf(Triple(listing.ownerId, listing.ownerName, stringResource(R.string.team_lead))) +
+        listing.members.map { Triple(it.uid, it.name, it.roleTitle) }
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        people.forEach { (uid, name, role) ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Monogram(name, uid, size = 32.dp)
+                Spacer(Modifier.width(8.dp))
+                Column {
+                    Text(name, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                    if (role.isNotBlank()) {
+                        Text(role, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -826,9 +890,14 @@ private fun DetailActionBar(
     onReviewApplicants: () -> Unit,
     onFindTeammates: () -> Unit,
     onOpenSource: () -> Unit,
+    onOpenTeam: () -> Unit,
+    onAcceptOffer: () -> Unit,
+    onDeclineOffer: () -> Unit,
+    onConfirmInterest: () -> Unit,
 ) {
-    val now = remember { Instant.now() }
+    val now = remember(state.myApplication) { Instant.now() }
     val closed = listing.closedReason(now)
+    val application = state.myApplication
     BottomActionBar {
         when {
             listing.kind == ListingKind.Event -> {
@@ -856,20 +925,79 @@ private fun DetailActionBar(
             }
             state.isOwner -> {
                 val counts = state.applicantCounts
-                PrimaryButton(
-                    text = when {
-                        counts == null || counts.active == 0 -> stringResource(R.string.action_review_applicants)
-                        counts.new > 0 -> pluralStringResource(R.plurals.review_applicants_new, counts.new, counts.new)
-                        else -> pluralStringResource(R.plurals.review_applicants_count, counts.active, counts.active)
-                    },
-                    onClick = onReviewApplicants,
-                )
+                val recruiting = (listing.recruitment?.openPlaces ?: 0) > 0 || (counts?.active ?: 0) > 0
+                if (recruiting) {
+                    PrimaryButton(
+                        text = when {
+                            counts == null || counts.active == 0 -> stringResource(R.string.action_review_applicants)
+                            counts.new > 0 -> pluralStringResource(R.plurals.review_applicants_new, counts.new, counts.new)
+                            else -> pluralStringResource(R.plurals.review_applicants_count, counts.active, counts.active)
+                        },
+                        onClick = onReviewApplicants,
+                    )
+                    TextButton(onClick = onOpenTeam, modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.action_open_workspace))
+                    }
+                } else {
+                    PrimaryButton(text = stringResource(R.string.action_open_workspace), onClick = onOpenTeam, icon = Icons.Rounded.Diversity3)
+                }
             }
-            state.myApplication?.status?.isActive == true -> AppliedBar(state.myApplication, busy = state.busy, onWithdraw = onWithdraw)
+            state.onTeam -> PrimaryButton(text = stringResource(R.string.action_open_workspace), onClick = onOpenTeam, icon = Icons.Rounded.Diversity3)
+            application != null && application.hasLiveOffer(now) -> {
+                Text(
+                    stringResource(R.string.offer_detail_prompt, application.roleTitle),
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(
+                    offerDeadlineText(application.offerExpiresAt),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SecondaryButton(
+                        text = stringResource(R.string.action_decline),
+                        onClick = onDeclineOffer,
+                        enabled = !state.busy,
+                        modifier = Modifier.weight(1f),
+                    )
+                    PrimaryButton(
+                        text = stringResource(R.string.action_accept_offer),
+                        onClick = onAcceptOffer,
+                        loading = state.busy,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            application?.status == ApplicationStatus.Reconfirm -> {
+                Text(
+                    stringResource(R.string.reconfirm_detail_prompt, application.roleTitle),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SecondaryButton(
+                        text = stringResource(R.string.action_withdraw),
+                        onClick = onWithdraw,
+                        enabled = !state.busy,
+                        modifier = Modifier.weight(1f),
+                    )
+                    PrimaryButton(
+                        text = stringResource(R.string.action_still_interested),
+                        onClick = onConfirmInterest,
+                        loading = state.busy,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            application?.status?.isActive == true -> AppliedBar(application, busy = state.busy, onWithdraw = onWithdraw)
+            application?.status == ApplicationStatus.Removed -> Text(
+                stringResource(R.string.removed_from_team),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             closed != null -> PrimaryButton(text = closedLabel(closed), onClick = {}, enabled = false)
             else -> PrimaryButton(
                 text = stringResource(
-                    if (state.myApplication?.status == ApplicationStatus.Withdrawn) R.string.action_apply_again else R.string.action_apply,
+                    if (application?.status?.canReapply == true) R.string.action_apply_again else R.string.action_apply,
                 ),
                 onClick = onApply,
             )
@@ -881,11 +1009,7 @@ private fun DetailActionBar(
 private fun AppliedBar(application: Application, busy: Boolean, onWithdraw: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            if (application.status == ApplicationStatus.Shortlisted) {
-                Tag(stringResource(R.string.status_shortlisted), icon = Icons.Rounded.Star, tone = TagTone.Accent)
-            } else {
-                Tag(stringResource(R.string.status_under_review), icon = Icons.Rounded.Schedule, tone = TagTone.Neutral)
-            }
+            ApplicationStatusTag(application, forOwner = false)
             Spacer(Modifier.height(4.dp))
             Text(
                 text = stringResource(R.string.applied_for_role_when, application.roleTitle, relativeTime(application.updatedAt)),

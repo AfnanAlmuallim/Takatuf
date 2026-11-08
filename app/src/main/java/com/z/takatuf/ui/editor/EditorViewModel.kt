@@ -2,11 +2,13 @@ package com.z.takatuf.ui.editor
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.z.takatuf.data.AiRepository
 import com.z.takatuf.data.AppError
 import com.z.takatuf.data.ListingRepository
 import com.z.takatuf.data.RoleTemplate
 import com.z.takatuf.data.Session
 import com.z.takatuf.data.attempt
+import com.z.takatuf.data.model.EligibleLevel
 import com.z.takatuf.data.model.EventDetails
 import com.z.takatuf.data.model.EventFormat
 import com.z.takatuf.data.model.EventType
@@ -16,6 +18,7 @@ import com.z.takatuf.data.model.ListingKind
 import com.z.takatuf.data.model.ListingStatus
 import com.z.takatuf.data.model.Recruitment
 import com.z.takatuf.data.model.Role
+import com.z.takatuf.data.model.RoleSuggestion
 import com.z.takatuf.data.toAppError
 import com.z.takatuf.domain.Dates
 import com.z.takatuf.domain.Validators
@@ -60,6 +63,18 @@ data class EditorUiState(
     val teamSizeMax: Int = 5,
     val format: EventFormat = EventFormat.InPerson,
     val location: String = "",
+    /** Who may enter an event, checked against each student's year (US09). */
+    val eligibleLevel: EligibleLevel = EligibleLevel.Any,
+    /** Members who joined through offers; the team can't be set smaller than them plus the lead. */
+    val memberCount: Int = 0,
+    /** Roles the AI read from the description, waiting for the owner to add or ignore them. */
+    val suggestions: List<RoleSuggestion> = emptyList(),
+    val suggesting: Boolean = false,
+    val suggestError: AppError? = null,
+    /** Set after a suggestion round that found nothing to add. */
+    val suggestedNothing: Boolean = false,
+    /** False when the build has no OpenAI key; the editor then doesn't offer suggestions. */
+    val aiAvailable: Boolean = false,
     /** Events a team request can be linked to. */
     val events: List<Listing> = emptyList(),
     val errors: Set<Field> = emptySet(),
@@ -70,7 +85,15 @@ data class EditorUiState(
 ) {
     val isEditing: Boolean get() = editingId != null
     val openPlaces: Int get() = roles.sumOf { it.openings }
+
+    /** The smallest team size allowed: the lead plus everyone who already joined. */
+    val minTeamSize: Int get() = 1 + memberCount
+
+    /** Enough written about the work for the AI to suggest roles from. */
+    val canSuggest: Boolean get() = (outcome.trim().length + description.trim().length) >= SuggestMinChars
 }
+
+const val SuggestMinChars = 40
 
 class EditorViewModel(
     kind: ListingKind,
@@ -78,11 +101,14 @@ class EditorViewModel(
     eventId: String?,
     private val session: Session,
     private val listings: ListingRepository,
+    private val ai: AiRepository,
     /** Suggested title for a team request, e.g. "Team for <event>", from string resources. */
     private val teamTitleFor: (eventTitle: String) -> String,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(EditorUiState(kind = kind, editingId = listingId, loading = listingId != null))
+    private val _state = MutableStateFlow(
+        EditorUiState(kind = kind, editingId = listingId, loading = listingId != null, aiAvailable = ai.isAvailable),
+    )
     val state: StateFlow<EditorUiState> = _state.asStateFlow()
 
     init {
@@ -138,6 +164,8 @@ class EditorViewModel(
                     teamSizeMax = e?.teamSizeMax ?: s.teamSizeMax,
                     format = e?.format ?: s.format,
                     location = e?.location.orEmpty(),
+                    eligibleLevel = e?.eligibleLevel ?: s.eligibleLevel,
+                    memberCount = listing.members.size,
                 )
             }
         }
@@ -181,6 +209,55 @@ class EditorViewModel(
 
     fun removeRole(id: String) = _state.update { s -> s.copy(roles = s.roles.filterNot { it.id == id }) }
 
+    /**
+     * Asks the AI to read the outcome and description and propose roles. Nothing is added until
+     * the owner picks a suggestion, and the editor works the same when the service is down.
+     */
+    fun suggestRoles() {
+        val s = _state.value
+        if (s.suggesting || !s.canSuggest) return
+        _state.update { it.copy(suggesting = true, suggestError = null, suggestedNothing = false) }
+        viewModelScope.launch {
+            attempt { ai.suggestRoles(s.kind, s.title, s.outcome, s.description, s.event?.title) }
+                .onSuccess { found ->
+                    _state.update { current ->
+                        val used = current.roles.map { it.title.trim().lowercase() }.toSet()
+                        val fresh = found.filter { it.title.trim().lowercase() !in used }
+                        current.copy(suggesting = false, suggestions = fresh, suggestedNothing = fresh.isEmpty())
+                    }
+                }
+                .onFailure { e -> _state.update { it.copy(suggesting = false, suggestError = e.toAppError()) } }
+        }
+    }
+
+    fun acceptSuggestion(suggestion: RoleSuggestion) = _state.update { s ->
+        s.copy(
+            roles = s.roles + suggestion.toRole(),
+            suggestions = s.suggestions - suggestion,
+            errors = s.errors - Field.Roles - Field.TeamSize,
+        )
+    }
+
+    fun acceptAllSuggestions() = _state.update { s ->
+        s.copy(
+            roles = s.roles + s.suggestions.map { it.toRole() },
+            suggestions = emptyList(),
+            errors = s.errors - Field.Roles - Field.TeamSize,
+        )
+    }
+
+    fun dismissSuggestion(suggestion: RoleSuggestion) = _state.update { it.copy(suggestions = it.suggestions - suggestion) }
+
+    fun dismissSuggestions() = _state.update { it.copy(suggestions = emptyList(), suggestError = null, suggestedNothing = false) }
+
+    private fun RoleSuggestion.toRole() = Role(
+        id = newId(),
+        title = title.trim().take(60),
+        description = description.trim().take(300),
+        skills = skills.map { it.trim() }.filter { it.isNotEmpty() }.distinct().take(8),
+        openings = openings.coerceIn(1, 10),
+    )
+
     fun newRoleId(): String = newId()
 
     fun publish() {
@@ -222,6 +299,7 @@ class EditorViewModel(
                     if (event == null) add(Field.Event)
                     else if (s.teamSize + s.openPlaces > event.teamSizeMax) add(Field.TeamSize)
                 }
+                if (s.teamSize < s.minTeamSize) add(Field.TeamSize)
                 if (s.deadline != null && s.deadline.isBefore(today) && !s.isEditing) add(Field.Deadline)
             }
             ListingKind.Event -> {
@@ -262,6 +340,7 @@ class EditorViewModel(
                     endDate = e.event?.endDate,
                     teamSizeMin = e.event?.teamSizeMin ?: 1,
                     teamSizeMax = e.event?.teamSizeMax ?: 1,
+                    eligibleLevel = e.event?.eligibleLevel ?: EligibleLevel.Any,
                 )
             }
         } else {
@@ -280,6 +359,7 @@ class EditorViewModel(
                 teamSizeMax = s.teamSizeMax,
                 format = s.format,
                 location = s.location.trim(),
+                eligibleLevel = s.eligibleLevel,
             )
         } else {
             null

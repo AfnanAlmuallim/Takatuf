@@ -126,7 +126,7 @@ fun DiscoverContent(
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 text = { Text(stringResource(R.string.action_post)) },
-                icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
+                icon = { Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.action_post)) },
                 expanded = expandedFab,
                 onClick = { showPost = true },
                 containerColor = MaterialTheme.colorScheme.primary,

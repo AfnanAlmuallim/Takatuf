@@ -1,31 +1,35 @@
+# Android Studio and local build output
 *.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
+.idea/
+.gradle/
+.kotlin/
+**/build/
+/captures/
+.externalNativeBuild/
+.cxx/
 local.properties
+.DS_Store
 
-# Local IDE and Kotlin caches
-/.idea/
-/.kotlin/
+# Firebase tooling and local test-account state
+firebase/node_modules/
+firebase/.firebase/
+*-debug.log
+firebase/tests/.live-smoke-created.json
+firebase/tests/.*private*.json
 
-# Local credentials and environment overrides
+# Local Sprint 2 report/evidence tooling (kept outside the source update)
+Sprint02_Deliverables/
+Sprint02_Evidence/
+firebase/tests/sprint02-*.mjs
+/Sprint Review and Retrospective.docx
+/Takatuf_Project_Charter.md
+/logo.png
+
+# Local AI credentials; only the placeholder template belongs in Git
 .env
 .env.*
 !.env.example
 *.jks
 *.keystore
-
-# Firebase tooling
-firebase/node_modules/
-*-debug.log
-firebase/tests/.live-smoke-created.json
+*.apk
+*.aab

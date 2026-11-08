@@ -1,5 +1,6 @@
-// Fills the local Firebase emulators with synthetic students, events, projects and
-// applications (charter §6.5: synthetic profiles for development and testing).
+// Fills the local Firebase emulators with synthetic students, events, projects,
+// applications, an offer and a working team with its workspace (charter §6.5: synthetic
+// profiles for development and testing).
 //
 //   npm run emulators          # in one terminal
 //   npm run seed               # in another
@@ -43,6 +44,17 @@ const encodeFields = (obj) => Object.fromEntries(Object.entries(obj).map(([k, v]
 
 async function put(path, data) {
   const res = await fetch(`${DOCS}/${path}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer owner' },
+    body: JSON.stringify({ fields: encodeFields(data) }),
+  });
+  if (!res.ok) throw new Error(`${path}: ${res.status} ${await res.text()}`);
+}
+
+/** Merges [data] into an existing document, leaving its other fields alone. */
+async function patch(path, data) {
+  const mask = Object.keys(data).map((k) => `updateMask.fieldPaths=${encodeURIComponent(k)}`).join('&');
+  const res = await fetch(`${DOCS}/${path}?${mask}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', Authorization: 'Bearer owner' },
     body: JSON.stringify({ fields: encodeFields(data) }),
@@ -163,7 +175,7 @@ const events = {
     title: 'Najd Smart City Hackathon', eventType: 'hackathon', organizer: 'Riyadh Tech Society',
     sourceUrl: 'https://example.org/najd-smart-city', start: 18, end: 20, reg: 9,
     eligibility: 'Undergraduate students at universities in Saudi Arabia. At least one team member must be in a computing major.',
-    min: 3, max: 5, format: 'in_person', location: 'Riyadh Front', by: 'omar', createdHoursAgo: 60,
+    min: 3, max: 5, format: 'in_person', location: 'Riyadh Front', by: 'omar', createdHoursAgo: 60, level: 'undergraduate',
     description: 'Forty-eight hours to prototype services for a smarter Riyadh: mobility, energy and public spaces. Mentors from local startups on site.',
   },
   cyber: {
@@ -197,6 +209,7 @@ for (const [key, e] of Object.entries(events)) {
     eventType: e.eventType, organizer: e.organizer, sourceUrl: e.sourceUrl,
     startDate: dayStart(e.start), endDate: dayEnd(e.end), registrationDeadline: dayEnd(e.reg),
     eligibility: e.eligibility, teamSizeMin: e.min, teamSizeMax: e.max, format: e.format, location: e.location,
+    eligibleLevel: e.level ?? 'any',
   });
 }
 const eventSnapshot = (key) => {
@@ -204,6 +217,7 @@ const eventSnapshot = (key) => {
   return {
     title: e.title, organizer: e.organizer, type: e.eventType,
     startDate: dayStart(e.start), endDate: dayEnd(e.end), teamSizeMin: e.min, teamSizeMax: e.max,
+    eligibleLevel: e.level ?? 'any',
   };
 };
 
@@ -301,7 +315,7 @@ for (const [key, l] of Object.entries(listings)) {
 }
 
 // ---------- applications ----------
-async function apply(listingKey, applicantKey, roleId, contribution, hours, status = 'submitted', reviewed = false, hoursAgo = 10, note = '') {
+async function apply(listingKey, applicantKey, roleId, contribution, hours, status = 'submitted', reviewed = false, hoursAgo = 10, note = '', extra = {}) {
   const l = listings[listingKey];
   const r = l.roles.find((x) => x.id === roleId);
   const ownerUid = uid[l.by];
@@ -311,22 +325,72 @@ async function apply(listingKey, applicantKey, roleId, contribution, hours, stat
     listingTitle: l.title, listingKind: l.kind, roleId, roleTitle: r.title,
     contribution, hoursPerWeek: hours, availabilityNote: note, status, reviewed,
     createdAt: ago(hoursAgo + 2), updatedAt: ago(hoursAgo),
+    ...extra,
   });
   await put(`passports/${uid[applicantKey]}/viewers/${ownerUid}`, { listingId: listingIds[listingKey], grantedAt: ago(hoursAgo) });
 }
 
 await apply('parking', 'nora', 'ux', 'I designed the booking flow for Campus Health Week and tested it with 15 students. I can take the parking map from wireframes to a tested prototype.', 6, 'submitted', false, 3);
-await apply('parking', 'faisal', 'be', 'I have built three FastAPI services with PostgreSQL, including one that ingests sensor data every minute.', 8, 'shortlisted', true, 20);
+await apply('parking', 'faisal', 'be', 'I have built three FastAPI services with PostgreSQL, including one that ingests sensor data every minute.', 8, 'accepted', true, 20, '',
+  { offeredAt: ago(30), offerExpiresAt: dayEnd(1), respondedAt: ago(20) });
 await apply('parking', 'yousef', 'iot', 'I have wired ultrasonic sensors to an ESP32 for a lab project and can prototype the bay sensors.', 6, 'submitted', true, 26, 'Lab hours on Mondays');
 await apply('parking', 'reem', 'be', 'Interested in the data side of the project.', 4, 'withdrawn', true, 40);
 await apply('chatbot', 'sara', 'mob', 'I build Android apps in Compose and Firebase every day and can have a chat prototype running in two weeks.', 8, 'submitted', false, 6);
-await apply('lostfound', 'sara', 'mob', 'I shipped the PSU Clubs app on Android and can own the claim flow end to end.', 5, 'shortlisted', true, 30);
+await apply('lostfound', 'sara', 'mob', 'I shipped the PSU Clubs app on Android and can own the claim flow end to end.', 5, 'offered', true, 30, '',
+  { offeredAt: ago(5), offerExpiresAt: dayEnd(2) });
 await apply('cyberTeam', 'omar', 'sec', 'I play CTFs every weekend and placed in the top 10 in two regional rounds this year.', 10, 'submitted', false, 2);
+
+// ---------- a working team (Sprint 2) ----------
+// Faisal accepted the backend place on Sara's parking project, so the listing records him as a
+// member and the team has a workspace with milestones, updates, links and responsibilities.
+{
+  const parkingId = listingIds.parking;
+  const roles = listings.parking.roles.map((r) => (r.id === 'be' ? { ...r, openings: 0 } : r));
+  await patch(`listings/${parkingId}`, {
+    roles,
+    openPlaces: roles.reduce((n, r) => n + r.openings, 0),
+    teamSize: listings.parking.teamSize + 1,
+    members: { [uid.faisal]: { name: people.faisal.name, major: people.faisal.major, roleId: 'be', roleTitle: 'Backend developer', joinedAt: ago(20) } },
+    memberIds: [uid.faisal],
+    updatedAt: ago(2),
+  });
+  const ws = `listings/${parkingId}`;
+  const milestone = (id, title, who, dueOffset, status, hoursAgo) => put(`${ws}/milestones/${id}`, {
+    title, assigneeId: uid[who], assigneeName: people[who].name, dueDate: dueOffset === null ? null : dayEnd(dueOffset),
+    status, createdBy: uid.sara, createdAt: ago(hoursAgo), updatedAt: ago(Math.max(1, hoursAgo - 4)),
+    completedAt: status === 'done' ? ago(hoursAgo - 6) : null,
+  });
+  await milestone('m1', 'Agree on the sensor data format', 'faisal', -3, 'done', 18);
+  await milestone('m2', 'API that stores bay readings', 'faisal', -1, 'doing', 16);
+  await milestone('m3', 'Map screen shows live free bays', 'sara', 6, 'todo', 12);
+  await milestone('m4', 'Trial with 30 drivers in lot B', 'sara', null, 'todo', 10);
+  await put(`${ws}/updates/u1`, {
+    authorId: uid.faisal, authorName: people.faisal.name,
+    text: 'Readings now arrive every minute from the two test sensors. Next: storing them and a /free-bays endpoint.',
+    link: 'https://github.com/example/parking-api', createdAt: ago(6),
+  });
+  await put(`${ws}/updates/u2`, {
+    authorId: uid.sara, authorName: people.sara.name,
+    text: 'Facilities confirmed lot B for the trial. We still need a designer for the map before the user test.',
+    link: '', createdAt: ago(3),
+  });
+  await put(`${ws}/deliverables/d1`, {
+    label: 'API repository', url: 'https://github.com/example/parking-api',
+    addedBy: uid.faisal, addedByName: people.faisal.name, createdAt: ago(15),
+  });
+  await put(`${ws}/deliverables/d2`, {
+    label: 'Map prototype', url: 'https://www.figma.com/file/example-parking',
+    addedBy: uid.sara, addedByName: people.sara.name, createdAt: ago(40),
+  });
+  await put(`${ws}/responsibilities/${uid.sara}`, { text: 'Android app and the lot B trial', updatedBy: uid.sara, updatedAt: ago(14) });
+  await put(`${ws}/responsibilities/${uid.faisal}`, { text: 'Sensor API and database', updatedBy: uid.faisal, updatedAt: ago(14) });
+}
 
 // ---------- saved ----------
 await put(`users/${uid.sara}/saved/${eventIds.najd}`, { savedAt: ago(12) });
 await put(`users/${uid.sara}/saved/${listingIds.dashboard}`, { savedAt: ago(4) });
 
 console.log(`Seeded project "${PROJECT}": ${Object.keys(people).length} students, ${Object.keys(events).length} events, ${Object.keys(listings).length} projects and team requests.`);
+console.log('Sprint 2: Sara leads the parking team with Faisal (workspace filled in) and has an offer waiting on Lost and found.');
 console.log(`Sign in as any of: ${Object.values(people).map((p) => p.email).join(', ')}`);
 console.log(`Password: ${PASSWORD}`);

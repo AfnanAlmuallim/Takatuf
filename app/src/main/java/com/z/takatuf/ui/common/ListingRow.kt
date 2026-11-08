@@ -138,6 +138,9 @@ fun ListingRow(
 private fun RowStateTag(closed: ClosedReason?, myApplication: ApplicationStatus?, isOwn: Boolean) {
     when {
         isOwn -> Tag(stringResource(R.string.tag_yours), tone = TagTone.Quiet)
+        myApplication == ApplicationStatus.Accepted -> Tag(stringResource(R.string.status_joined), tone = TagTone.Accent)
+        myApplication == ApplicationStatus.Offered -> Tag(stringResource(R.string.tag_offer), tone = TagTone.Attention)
+        myApplication == ApplicationStatus.Reconfirm -> Tag(stringResource(R.string.tag_reconfirm), tone = TagTone.Attention)
         myApplication == ApplicationStatus.Shortlisted -> Tag(stringResource(R.string.status_shortlisted), tone = TagTone.Accent)
         myApplication == ApplicationStatus.Submitted -> Tag(stringResource(R.string.tag_applied), tone = TagTone.Accent)
         closed != null -> Tag(closedLabel(closed), tone = TagTone.Quiet)
@@ -152,6 +155,7 @@ fun closedLabel(reason: ClosedReason): String = stringResource(
         ClosedReason.EventOver -> R.string.closed_event_over_short
         ClosedReason.Ended -> R.string.closed_ended_short
         ClosedReason.RegistrationClosed -> R.string.closed_registration_short
+        ClosedReason.Full -> R.string.closed_full_short
     },
 )
 

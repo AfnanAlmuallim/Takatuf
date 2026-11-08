@@ -11,6 +11,17 @@ plugins {
 // the real Firebase project from google-services.json.
 val firebaseEmulatorHost: String = providers.gradleProperty("takatuf.emulatorHost").orNull.orEmpty()
 
+// AI role suggestions call OpenAI straight from the app. The key and model come from the
+// project's .env (git-ignored; see .env.example). Without a key the app hides the feature.
+// Anything here ends up inside the APK, so give the key a spending cap.
+val dotEnv: Map<String, String> = providers.fileContents(rootProject.layout.projectDirectory.file(".env"))
+    .asText.orNull.orEmpty().lines()
+    .map { it.trim() }
+    .filter { it.isNotEmpty() && !it.startsWith("#") && "=" in it }
+    .associate { it.substringBefore("=").trim() to it.substringAfter("=").trim() }
+
+fun quoted(value: String): String = "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
 android {
     namespace = "com.z.takatuf"
     compileSdk {
@@ -21,11 +32,14 @@ android {
         applicationId = "com.z.takatuf"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "FIREBASE_EMULATOR_HOST", "\"\"")
+        buildConfigField("String", "OPENAI_API_KEY", quoted(dotEnv["OPENAI_API_KEY"].orEmpty()))
+        buildConfigField("String", "OPENAI_MODEL", quoted(dotEnv["OPENAI_MODEL"] ?: "gpt-6-luna"))
+        buildConfigField("int", "AI_DAILY_LIMIT", (dotEnv["AI_DAILY_LIMIT"]?.toIntOrNull() ?: 20).toString())
     }
 
     buildTypes {
@@ -71,6 +85,8 @@ dependencies {
     implementation(libs.kotlinx.coroutines.play.services)
 
     testImplementation(libs.junit)
+    // Android's org.json is a stub in local unit tests; this is the real implementation.
+    testImplementation(libs.org.json)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

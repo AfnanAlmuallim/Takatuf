@@ -31,6 +31,17 @@ data class ApplicantsRoute(val listingId: String)
 @Serializable
 data class ApplicantRoute(val listingId: String, val applicantId: String)
 
+/** Suggested member combinations for a recruiting listing (US10, US11). */
+@Serializable
+data class TeamBuilderRoute(val listingId: String)
+
+@Serializable
+data object TeamsRoute
+
+/** A team's private space: plan, updates and people (US13 to US16). */
+@Serializable
+data class WorkspaceRoute(val listingId: String)
+
 /** Another student's Skill Passport. */
 @Serializable
 data class PersonRoute(val uid: String)

@@ -25,6 +25,7 @@ object Catalog {
         "Management",
         "Law",
         "Translation",
+        "Mobile development"
     )
 
     val skills = listOf(

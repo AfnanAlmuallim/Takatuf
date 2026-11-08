@@ -43,6 +43,23 @@ enum class EventFormat(val key: String) {
     }
 }
 
+/** Who may enter an event, checked against the year on each student's profile. */
+enum class EligibleLevel(val key: String) {
+    Any("any"), Undergraduate("undergraduate"), Graduate("graduate");
+
+    /** True or false when the year settles it; null when the student hasn't recorded a year. */
+    fun admits(year: Int?): Boolean? = when {
+        this == Any -> true
+        year == null -> null
+        this == Undergraduate -> year in 1..5
+        else -> year >= 6
+    }
+
+    companion object {
+        fun from(key: String?) = entries.firstOrNull { it.key == key } ?: Any
+    }
+}
+
 data class Role(
     val id: String,
     val title: String,
@@ -57,7 +74,7 @@ data class Recruitment(
     val roles: List<Role>,
     val hoursPerWeek: Int,
     val duration: String,
-    /** Members the team already has, including the owner. */
+    /** Members the team has now: the lead, anyone joined through Takatuf, and anyone added outside it. */
     val teamSize: Int,
     /** When applications close; null keeps them open until the owner closes the listing. */
     val deadline: Instant?,
@@ -78,6 +95,7 @@ data class EventDetails(
     val teamSizeMax: Int,
     val format: EventFormat,
     val location: String,
+    val eligibleLevel: EligibleLevel = EligibleLevel.Any,
 )
 
 /** A copy of the key event facts kept on a team request, so list rows need no extra reads. */
@@ -90,7 +108,21 @@ data class LinkedEvent(
     val endDate: Instant?,
     val teamSizeMin: Int,
     val teamSizeMax: Int,
+    val eligibleLevel: EligibleLevel = EligibleLevel.Any,
 )
+
+/** Someone who joined the team by accepting an offer (the lead is not listed here). */
+data class TeamMember(
+    val uid: String,
+    val name: String,
+    val major: String,
+    val roleId: String,
+    val roleTitle: String,
+    val joinedAt: Instant?,
+)
+
+/** A leadership handover waiting for the nominated member to accept. */
+data class PendingLeader(val uid: String, val name: String, val requestedAt: Instant?)
 
 enum class ClosedReason {
     /** The owner closed recruitment. */
@@ -107,6 +139,9 @@ enum class ClosedReason {
 
     /** The event still runs, but its registration deadline passed. */
     RegistrationClosed,
+
+    /** Every place on the team is filled. */
+    Full,
 }
 
 data class Listing(
@@ -126,7 +161,23 @@ data class Listing(
     val linkedEvent: LinkedEvent? = null,
     /** Set for events. */
     val event: EventDetails? = null,
+    val members: List<TeamMember> = emptyList(),
+    val pendingLeader: PendingLeader? = null,
 ) {
+    val memberIds: List<String> get() = members.map { it.uid }
+
+    /** Everyone on the team. The recorded size can include people who aren't on Takatuf. */
+    val headcount: Int get() = maxOf(recruitment?.teamSize ?: 0, 1 + members.size)
+
+    fun isLead(uid: String): Boolean = uid == ownerId
+
+    /** The lead or anyone who joined; they can open the team workspace. */
+    fun isOnTeam(uid: String): Boolean = uid == ownerId || members.any { it.uid == uid }
+
+    /** Eligibility rule the team's members must meet, from the event a team request is for. */
+    val eligibleLevel: EligibleLevel
+        get() = linkedEvent?.eligibleLevel ?: event?.eligibleLevel ?: EligibleLevel.Any
+
     val skillsWanted: List<String>
         get() = recruitment?.roles.orEmpty().flatMap { it.skills }.distinctBy { it.lowercase() }
 
@@ -136,6 +187,7 @@ data class Listing(
         event != null && !now.isBefore(event.endDate) -> ClosedReason.Ended
         event?.registrationDeadline?.let { !now.isBefore(it) } == true -> ClosedReason.RegistrationClosed
         linkedEvent?.endDate?.let { !now.isBefore(it) } == true -> ClosedReason.EventOver
+        recruitment != null && recruitment.openPlaces == 0 -> ClosedReason.Full
         recruitment?.deadline?.let { !now.isBefore(it) } == true -> ClosedReason.DeadlinePassed
         else -> null
     }

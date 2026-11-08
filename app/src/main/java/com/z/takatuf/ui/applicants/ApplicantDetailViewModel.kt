@@ -2,18 +2,22 @@ package com.z.takatuf.ui.applicants
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.z.takatuf.R
 import com.z.takatuf.data.AppError
 import com.z.takatuf.data.ApplicationRepository
 import com.z.takatuf.data.ListingRepository
 import com.z.takatuf.data.ProfileRepository
+import com.z.takatuf.data.Session
 import com.z.takatuf.data.attempt
 import com.z.takatuf.data.model.Application
-import com.z.takatuf.data.model.ApplicationStatus
 import com.z.takatuf.data.model.Listing
 import com.z.takatuf.data.model.PassportAccess
 import com.z.takatuf.data.model.Profile
 import com.z.takatuf.data.toAppError
+import com.z.takatuf.domain.ApplicantFit
 import com.z.takatuf.ui.common.UserMessage
+import com.z.takatuf.ui.team.PeopleCache
+import com.z.takatuf.ui.team.fitsFor
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -21,6 +25,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -32,54 +37,56 @@ data class ApplicantDetailUiState(
     val listing: Listing? = null,
     val profile: Profile? = null,
     val passport: PassportAccess? = null,
+    val fit: ApplicantFit? = null,
     val busy: Boolean = false,
+    /** Changes each time an action succeeds, so a sheet can close itself. */
+    val done: Long = 0L,
     val message: UserMessage? = null,
 )
 
-private data class Extras(
-    val listing: Listing? = null,
-    val profile: Profile? = null,
-    val passport: PassportAccess? = null,
-    val busy: Boolean = false,
-    val message: UserMessage? = null,
-)
+private data class Extras(val busy: Boolean = false, val done: Long = 0L, val message: UserMessage? = null)
 
 class ApplicantDetailViewModel(
     private val listingId: String,
     private val applicantId: String,
+    session: Session,
     listings: ListingRepository,
     private val applications: ApplicationRepository,
     profiles: ProfileRepository,
 ) : ViewModel() {
 
     private val extras = MutableStateFlow(Extras())
+    private val people = PeopleCache(viewModelScope, profiles)
+    private val uid = session.uid.orEmpty()
     private var markedReviewed = false
 
+    private val listing = listings.observe(listingId)
+        .onEach { it?.let { l -> people.request(l.memberIds + l.ownerId) } }
+        .catch { emit(null) }
+        .onStart { emit(null) }
+
+    private val application = applications.observe(listingId, applicantId)
+        .onEach { app -> if (app != null && !app.reviewed) markReviewed() }
+        .map { Result.success(it) }
+        .catch { emit(Result.failure(it)) }
+
     init {
-        viewModelScope.launch {
-            val listing = attempt { listings.get(listingId) }.getOrNull()
-            val profile = attempt { profiles.getProfile(applicantId) }.getOrNull()
-            val passport = attempt { profiles.passportFor(applicantId) }.getOrDefault(PassportAccess.Hidden)
-            extras.update { it.copy(listing = listing, profile = profile, passport = passport) }
-        }
+        people.request(listOf(applicantId))
     }
 
     val state: StateFlow<ApplicantDetailUiState> =
-        combine(
-            applications.observe(listingId, applicantId)
-                .onEach { app -> if (app != null && !app.reviewed) markReviewed() }
-                .map { Result.success(it) }
-                .catch { emit(Result.failure(it)) },
-            extras,
-        ) { result, e ->
+        combine(application, listing, people.people, session.passport, extras) { result, l, p, myPassport, e ->
+            val app = result.getOrNull()
             ApplicantDetailUiState(
                 loading = false,
-                error = result.exceptionOrNull()?.toAppError() ?: if (result.getOrNull() == null) AppError.NotFound else null,
-                application = result.getOrNull(),
-                listing = e.listing,
-                profile = e.profile,
-                passport = e.passport,
+                error = result.exceptionOrNull()?.toAppError() ?: if (app == null) AppError.NotFound else null,
+                application = app,
+                listing = l,
+                profile = p.profiles[applicantId],
+                passport = p.passports[applicantId],
+                fit = if (app != null && l != null) fitsFor(l, listOf(app), p, uid, myPassport)[applicantId] else null,
                 busy = e.busy,
+                done = e.done,
                 message = e.message,
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ApplicantDetailUiState())
@@ -91,16 +98,26 @@ class ApplicantDetailViewModel(
         viewModelScope.launch { attempt { applications.markReviewed(listingId, applicantId) } }
     }
 
-    fun setShortlisted(shortlisted: Boolean) {
+    fun setShortlisted(shortlisted: Boolean) = run(if (shortlisted) R.string.msg_shortlisted else R.string.msg_unshortlisted) {
+        applications.setShortlisted(listingId, applicantId, shortlisted)
+    }
+
+    /** Offers a place; it stays open for [days] days unless the applicant answers first. */
+    fun sendOffer(days: Int) = run(R.string.msg_offer_sent) { applications.sendOffers(listingId, listOf(applicantId), days) }
+
+    fun cancelOffer() = run(R.string.msg_offer_cancelled) { applications.cancelOffer(listingId, applicantId) }
+
+    private fun run(success: Int, block: suspend () -> Unit) {
         if (extras.value.busy) return
         extras.update { it.copy(busy = true) }
         viewModelScope.launch {
-            val result = attempt { applications.setShortlisted(listingId, applicantId, shortlisted) }
+            val result = attempt { block() }
             extras.update {
                 it.copy(
                     busy = false,
+                    done = if (result.isSuccess) System.nanoTime() else it.done,
                     message = result.fold(
-                        onSuccess = { UserMessage(if (shortlisted) com.z.takatuf.R.string.msg_shortlisted else com.z.takatuf.R.string.msg_unshortlisted) },
+                        onSuccess = { UserMessage(success) },
                         onFailure = { e -> UserMessage(e.toAppError().message) },
                     ),
                 )
@@ -109,6 +126,4 @@ class ApplicantDetailViewModel(
     }
 
     fun messageShown() = extras.update { it.copy(message = null) }
-
-    val isShortlisted: Boolean get() = state.value.application?.status == ApplicationStatus.Shortlisted
 }

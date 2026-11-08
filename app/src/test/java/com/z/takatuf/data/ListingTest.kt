@@ -54,6 +54,8 @@ class ListingTest {
     @Test
     fun `events report ended and registration closed separately`() {
         assertNull(event(days(5), days(7), days(2)).closedReason(now))
+        assertNull(event(days(5), days(7), now).closedReason(now.minusNanos(1)))
+        assertEquals(ClosedReason.RegistrationClosed, event(days(5), days(7), now).closedReason(now))
         assertEquals(ClosedReason.RegistrationClosed, event(days(5), days(7), days(-1)).closedReason(now))
         assertEquals(ClosedReason.Ended, event(days(-5), days(-3), days(-8)).closedReason(now))
     }

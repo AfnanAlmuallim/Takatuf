@@ -9,9 +9,11 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Badge
+import androidx.compose.material.icons.outlined.Diversity3
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Inbox
 import androidx.compose.material.icons.rounded.Badge
+import androidx.compose.material.icons.rounded.Diversity3
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Inbox
 import androidx.compose.material3.Badge
@@ -48,7 +50,7 @@ import com.z.takatuf.R
 import com.z.takatuf.TakatufApplication
 import com.z.takatuf.data.model.ListingKind
 import com.z.takatuf.ui.activity.ActivityScreen
-import com.z.takatuf.ui.activity.newApplicantCount
+import com.z.takatuf.ui.activity.attentionCount
 import com.z.takatuf.ui.applicants.ApplicantDetailScreen
 import com.z.takatuf.ui.applicants.ApplicantsScreen
 import com.z.takatuf.ui.discover.DiscoverScreen
@@ -56,6 +58,10 @@ import com.z.takatuf.ui.editor.EditorScreen
 import com.z.takatuf.ui.listing.ListingDetailScreen
 import com.z.takatuf.ui.passport.PassportScreen
 import com.z.takatuf.ui.passport.PersonScreen
+import com.z.takatuf.ui.team.TeamBuilderScreen
+import com.z.takatuf.ui.team.TeamsScreen
+import com.z.takatuf.ui.team.WorkspaceScreen
+import com.z.takatuf.ui.team.leadRequestCount
 import com.z.takatuf.ui.theme.TakatufTheme
 import kotlinx.coroutines.flow.Flow
 import kotlin.reflect.KClass
@@ -68,6 +74,7 @@ private enum class TopLevel(
     val icon: ImageVector,
 ) {
     Discover(DiscoverRoute, DiscoverRoute::class, R.string.tab_discover, Icons.Rounded.Explore, Icons.Outlined.Explore),
+    Teams(TeamsRoute, TeamsRoute::class, R.string.tab_teams, Icons.Rounded.Diversity3, Icons.Outlined.Diversity3),
     Activity(ActivityRoute, ActivityRoute::class, R.string.tab_activity, Icons.Rounded.Inbox, Icons.Outlined.Inbox),
     Passport(PassportRoute, PassportRoute::class, R.string.tab_passport, Icons.Rounded.Badge, Icons.Outlined.Badge),
 }
@@ -80,8 +87,11 @@ fun TakatufNavHost(newIntents: Flow<Intent>) {
     val destination = entry?.destination
     val showBar = destination == null || TopLevel.entries.any { destination.hasRoute(it.routeClass) }
     val uid = container.session.uid.orEmpty()
-    val newApplicantsFlow = remember(uid) { container.applications.newApplicantCount(uid) }
-    val newApplicants by newApplicantsFlow.collectAsStateWithLifecycle(0)
+    // Activity: new applicants plus offers and reconfirmations to answer. Teams: leadership handovers.
+    val attentionFlow = remember(uid) { container.applications.attentionCount(uid) }
+    val attention by attentionFlow.collectAsStateWithLifecycle(0)
+    val leadRequestsFlow = remember(uid) { container.teams.leadRequestCount(uid) }
+    val leadRequests by leadRequestsFlow.collectAsStateWithLifecycle(0)
 
     LaunchedEffect(navController) {
         newIntents.collect { navController.handleDeepLink(it) }
@@ -96,8 +106,12 @@ fun TakatufNavHost(newIntents: Flow<Intent>) {
                     NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                         TopLevel.entries.forEach { tab ->
                             val selected = destination?.hasRoute(tab.routeClass) == true
-                            val badge = if (tab == TopLevel.Activity) newApplicants else 0
-                            val badgeText = if (badge > 0) pluralStringResource(R.plurals.new_applicants_badge_a11y, badge, badge) else null
+                            val badge = when (tab) {
+                                TopLevel.Activity -> attention
+                                TopLevel.Teams -> leadRequests
+                                else -> 0
+                            }
+                            val badgeText = if (badge > 0) pluralStringResource(R.plurals.attention_badge_a11y, badge, badge) else null
                             NavigationBarItem(
                                 selected = selected,
                                 onClick = { navController.navigateToTab(tab.route) },
@@ -140,12 +154,19 @@ fun TakatufNavHost(newIntents: Flow<Intent>) {
                     onPost = { kind -> navController.navigate(EditorRoute(kind.key)) },
                 )
             }
+            composable<TeamsRoute> {
+                TeamsScreen(
+                    onOpenTeam = { navController.navigate(WorkspaceRoute(it)) },
+                    onDiscover = { navController.navigateToTab(DiscoverRoute) },
+                )
+            }
             composable<ActivityRoute> {
                 ActivityScreen(
                     onOpenListing = { navController.navigate(ListingRoute(it)) },
                     onOpenApplicants = { navController.navigate(ApplicantsRoute(it)) },
                     onDiscover = { navController.navigateToTab(DiscoverRoute) },
                     onPost = { kind -> navController.navigate(EditorRoute(kind.key)) },
+                    onOpenTeam = { navController.navigate(WorkspaceRoute(it)) },
                 )
             }
             composable<PassportRoute> { PassportScreen() }
@@ -161,6 +182,7 @@ fun TakatufNavHost(newIntents: Flow<Intent>) {
                     onReviewApplicants = { navController.navigate(ApplicantsRoute(it)) },
                     onEdit = { listing -> navController.navigate(EditorRoute(listing.kind.key, listingId = listing.id)) },
                     onFindTeammates = { eventId -> navController.navigate(EditorRoute(ListingKind.Team.key, eventId = eventId)) },
+                    onOpenTeam = { navController.navigate(WorkspaceRoute(it)) },
                 )
             }
             composable<EditorRoute> {
@@ -189,10 +211,29 @@ fun TakatufNavHost(newIntents: Flow<Intent>) {
                     onBack = { navController.popBackStack() },
                     onOpenApplicant = { listingId, applicantId -> navController.navigate(ApplicantRoute(listingId, applicantId)) },
                     onOpenListing = { navController.navigate(ListingRoute(it)) },
+                    onBuildTeam = { navController.navigate(TeamBuilderRoute(it)) },
                 )
             }
             composable<ApplicantRoute> {
                 ApplicantDetailScreen(onBack = { navController.popBackStack() })
+            }
+            composable<TeamBuilderRoute> {
+                TeamBuilderScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenApplicant = { listingId, applicantId -> navController.navigate(ApplicantRoute(listingId, applicantId)) },
+                )
+            }
+            composable<WorkspaceRoute>(
+                deepLinks = listOf(navDeepLink<WorkspaceRoute>(basePath = "${DeepLinkScheme}team")),
+            ) {
+                WorkspaceScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenListing = { navController.navigate(ListingRoute(it)) },
+                    onOpenPerson = { person ->
+                        if (person == uid) navController.navigateToTab(PassportRoute) else navController.navigate(PersonRoute(person))
+                    },
+                    onReviewApplicants = { navController.navigate(ApplicantsRoute(it)) },
+                )
             }
             composable<PersonRoute>(
                 deepLinks = listOf(navDeepLink<PersonRoute>(basePath = "${DeepLinkScheme}person")),

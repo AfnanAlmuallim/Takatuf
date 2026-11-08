@@ -1,6 +1,7 @@
 rules_version = '2';
 
-// Takatuf, Sprint 1: accounts, Skill Passports, listings, applications and saved items.
+// Takatuf, Sprints 1–2: accounts, Skill Passports, listings, applications, saved items,
+// offers and membership, leadership handover, and the private team workspace.
 // The app never relies on its own checks for permissions; everything below is enforced here,
 // including for requests made outside the app (NFR02).
 service cloud.firestore {
@@ -83,13 +84,21 @@ service cloud.firestore {
       allow create, update: if isUser(uid) && validPassport(incoming());
       allow delete: if false;
 
-      // Owners of listings the student applied to. Written by the student when applying.
+      // Owners of listings the student applied to. Written by the student when applying, or
+      // by whoever leads that listing after a handover (US16): the student shared their passport
+      // with the listing's lead, and the lead has changed.
       match /viewers/{viewerId} {
         allow read, delete: if isUser(uid);
         allow create, update: if isUser(uid) && viewerId != uid
           && incoming().keys().hasOnly(['listingId', 'grantedAt'])
           && incoming().listingId is string
           && incoming().grantedAt == request.time;
+        allow create: if signedIn() && viewerId == request.auth.uid && viewerId != uid
+          && incoming().keys().hasOnly(['listingId', 'grantedAt'])
+          && incoming().listingId is string
+          && incoming().grantedAt == request.time
+          && get(/databases/$(database)/documents/listings/$(incoming().listingId)).data.ownerId == request.auth.uid
+          && exists(/databases/$(database)/documents/listings/$(incoming().listingId)/applications/$(uid));
       }
     }
 
@@ -124,21 +133,104 @@ service cloud.firestore {
         && incoming().ownerId == request.auth.uid
         && incoming().status == 'open'
         && incoming().createdAt == request.time
+        && incoming().get('members', {}).size() == 0
+        && incoming().get('memberIds', []).size() == 0
+        && incoming().get('pendingLeader', null) == null
+        && (incoming().kind == 'event' || incoming().openPlaces >= 1)
         && validListing(incoming());
-      // Only the owner edits; ownership, kind and creation time never change.
-      allow update: if signedIn()
-        && resource.data.ownerId == request.auth.uid
-        && !changedKeys().hasAny(['ownerId', 'kind', 'createdAt'])
-        && validListing(incoming());
-      // Listings are closed rather than deleted so applicants keep a record.
+      allow update: if signedIn() && validListing(incoming())
+        && (leadEdits() || joinsTeam() || leavesTeam() || takesLead() || declinesLead());
+      // Listings are closed rather than deleted so applicants and members keep a record.
       allow delete: if false;
 
-      // ---------- applications (US07, US08) ----------
+      // ---------- membership paths (US12, US15, US16) ----------
+
+      // The lead edits anything except ownership. They can remove members but never add
+      // anyone: joining always takes the applicant's own acceptance.
+      function leadEdits() {
+        return resource.data.ownerId == request.auth.uid
+          && !changedKeys().hasAny(['ownerId', 'kind', 'createdAt'])
+          && incoming().get('memberIds', []).toSet().difference(resource.data.get('memberIds', []).toSet()).size() == 0
+          && incoming().get('members', {}).keys().toSet().difference(resource.data.get('members', {}).keys().toSet()).size() == 0
+          && (incoming().get('pendingLeader', null) == null
+              || (incoming().pendingLeader.keys().hasOnly(['uid', 'name', 'requestedAt'])
+                  && incoming().pendingLeader.uid in incoming().get('memberIds', [])));
+      }
+
+      // An applicant with a live offer takes one place: their role and the team lose one open
+      // place and gain one member, in the same transaction that marks the offer accepted.
+      // Firestore serialises concurrent acceptances, so capacity can't be exceeded.
+      function joinsTeam() {
+        let me = request.auth.uid;
+        let before = resource.data;
+        let after = incoming();
+        let offer = getAfter(/databases/$(database)/documents/listings/$(listingId)/applications/$(me)).data;
+        return me != before.ownerId
+          && !(me in before.get('memberIds', []))
+          && changedKeys().hasAll(['roles', 'members', 'memberIds'])
+          && changedKeys().hasOnly(['roles', 'openPlaces', 'teamSize', 'members', 'memberIds', 'updatedAt'])
+          && offer.status == 'accepted'
+          && after.memberIds.toSet() == before.get('memberIds', []).toSet().union([me].toSet())
+          && after.members.diff(before.get('members', {})).affectedKeys().hasOnly([me])
+          && validMember(after.members[me])
+          && after.members[me].joinedAt == request.time
+          && after.members[me].roleId == offer.roleId
+          && after.teamSize == before.teamSize + 1
+          && after.openPlaces == before.openPlaces - 1
+          && rolesDecremented(before.roles, after.roles, offer.roleId);
+      }
+
+      // A member leaves. Their seat isn't reopened automatically; the lead decides.
+      function leavesTeam() {
+        let me = request.auth.uid;
+        let before = resource.data;
+        let after = incoming();
+        return me in before.get('memberIds', [])
+          && changedKeys().hasOnly(['members', 'memberIds', 'teamSize', 'pendingLeader', 'updatedAt'])
+          && after.get('memberIds', []).toSet() == before.memberIds.toSet().difference([me].toSet())
+          && after.get('members', {}).diff(before.get('members', {})).affectedKeys().hasOnly([me])
+          && !(me in after.get('members', {}))
+          && after.teamSize == before.teamSize - 1
+          && (!changedKeys().hasAny(['pendingLeader'])
+              || (before.pendingLeader.uid == me && after.pendingLeader == null));
+      }
+
+      // The nominated member accepts leadership; the previous lead stays on as a member.
+      function takesLead() {
+        let me = request.auth.uid;
+        let before = resource.data;
+        let after = incoming();
+        let previous = before.ownerId;
+        return before.get('pendingLeader', null) != null
+          && before.pendingLeader.uid == me
+          && changedKeys().hasOnly(['ownerId', 'ownerName', 'ownerMajor', 'members', 'memberIds', 'pendingLeader', 'updatedAt'])
+          && after.ownerId == me
+          && after.pendingLeader == null
+          && text(after.ownerName, 1, 60)
+          && after.memberIds.toSet() == before.memberIds.toSet().difference([me].toSet()).union([previous].toSet())
+          && after.members.diff(before.get('members', {})).affectedKeys().hasOnly([me, previous])
+          && !(me in after.members)
+          && validMember(after.members[previous]);
+      }
+
+      // The nominated member declines; the current lead keeps the team.
+      function declinesLead() {
+        return resource.data.get('pendingLeader', null) != null
+          && resource.data.pendingLeader.uid == request.auth.uid
+          && changedKeys().hasOnly(['pendingLeader', 'updatedAt'])
+          && incoming().pendingLeader == null;
+      }
+
+      // ---------- applications (US07–US12, US15) ----------
       // The document id is the applicant's uid, so a second active application to the same
       // listing cannot exist, however many times a request is retried.
       match /applications/{applicantId} {
         function listing() {
           return get(/databases/$(database)/documents/listings/$(listingId)).data;
+        }
+
+        function listingAfter() {
+          return getAfter(/databases/$(database)/documents/listings/$(listingId)).data;
         }
 
         function isListingOwner() {
@@ -148,6 +240,7 @@ service cloud.firestore {
         function accepting(l) {
           return l.kind in ['project', 'team']
             && l.status == 'open'
+            && l.get('openPlaces', 1) > 0
             && (!('deadline' in l) || l.deadline == null || request.time < l.deadline);
         }
 
@@ -163,38 +256,158 @@ service cloud.firestore {
           && incoming().ownerId == listing().ownerId
           && incoming().listingKind == listing().kind
           && listing().ownerId != applicantId
+          && !(applicantId in listing().get('memberIds', []))
           && accepting(listing())
           && incoming().status == 'submitted'
           && incoming().reviewed == false
           && incoming().createdAt == request.time
           && incoming().updatedAt == request.time;
 
-        allow update: if applicationKeys(incoming()) && (
-          // The applicant withdraws an active application.
+        allow update: if applicationKeys(incoming())
+          && !changedKeys().hasAny(['applicantId', 'listingId', 'createdAt'])
+          && (
+          // The applicant withdraws while still in recruitment.
           (isUser(applicantId)
-            && resource.data.status in ['submitted', 'shortlisted']
+            && resource.data.status in ['submitted', 'shortlisted', 'offered', 'reconfirm']
             && incoming().status == 'withdrawn'
             && changedKeys().hasOnly(['status', 'updatedAt'])
             && incoming().updatedAt == request.time)
-          // The applicant applies again after withdrawing, while the listing is open.
+          // The applicant applies again after withdrawing, declining or leaving.
           || (isUser(applicantId)
-            && resource.data.status == 'withdrawn'
+            && resource.data.status in ['withdrawn', 'declined', 'left']
             && incoming().status == 'submitted'
             && incoming().reviewed == false
+            && incoming().ownerId == listing().ownerId
             && changedKeys().hasOnly(['roleId', 'roleTitle', 'contribution', 'hoursPerWeek', 'availabilityNote',
-                                      'applicantName', 'applicantMajor', 'listingTitle', 'status', 'reviewed', 'updatedAt'])
+                                      'applicantName', 'applicantMajor', 'listingTitle', 'status', 'reviewed',
+                                      'ownerId', 'updatedAt'])
             && validAnswer(incoming())
             && accepting(listing())
             && incoming().updatedAt == request.time)
+          // The applicant accepts a live offer, joining the team in the same transaction.
+          || (isUser(applicantId)
+            && resource.data.status == 'offered'
+            && request.time < resource.data.offerExpiresAt
+            && incoming().status == 'accepted'
+            && changedKeys().hasOnly(['status', 'respondedAt', 'updatedAt'])
+            && incoming().respondedAt == request.time
+            && applicantId in listingAfter().get('memberIds', []))
+          // The applicant declines an offer.
+          || (isUser(applicantId)
+            && resource.data.status == 'offered'
+            && incoming().status == 'declined'
+            && changedKeys().hasOnly(['status', 'respondedAt', 'updatedAt'])
+            && incoming().respondedAt == request.time)
+          // After a place reopens, the applicant confirms they're still interested.
+          || (isUser(applicantId)
+            && resource.data.status == 'reconfirm'
+            && incoming().status == 'submitted'
+            && incoming().reviewed == false
+            && changedKeys().hasOnly(['status', 'reviewed', 'updatedAt'])
+            && accepting(listing()))
+          // A member leaves, alongside removing themselves from the team.
+          || (isUser(applicantId)
+            && resource.data.status == 'accepted'
+            && incoming().status == 'left'
+            && changedKeys().hasOnly(['status', 'updatedAt'])
+            && !(applicantId in listingAfter().get('memberIds', [])))
           // The owner shortlists, un-shortlists or marks as reviewed. Membership never changes here.
           || (isListingOwner()
             && resource.data.status in ['submitted', 'shortlisted']
             && incoming().status in ['submitted', 'shortlisted']
             && changedKeys().hasOnly(['status', 'reviewed'])
             && incoming().reviewed is bool)
+          // The owner offers a place (or renews an expired offer) for up to a week.
+          || (isListingOwner()
+            && resource.data.status in ['submitted', 'shortlisted', 'offered']
+            && incoming().status == 'offered'
+            && changedKeys().hasOnly(['status', 'reviewed', 'offeredAt', 'offerExpiresAt'])
+            && incoming().offeredAt == request.time
+            && incoming().offerExpiresAt is timestamp
+            && incoming().offerExpiresAt > request.time
+            && incoming().offerExpiresAt <= request.time + duration.value(8, 'd')
+            && listing().get('openPlaces', 0) > 0)
+          // The owner takes an offer back.
+          || (isListingOwner()
+            && resource.data.status == 'offered'
+            && incoming().status == 'shortlisted'
+            && changedKeys().hasOnly(['status']))
+          // The owner asks earlier applicants to reconfirm after reopening a place (US15).
+          || (isListingOwner()
+            && resource.data.status in ['submitted', 'shortlisted', 'offered', 'declined']
+            && incoming().status == 'reconfirm'
+            && changedKeys().hasOnly(['status', 'reviewed', 'reconfirmRequestedAt'])
+            && incoming().reconfirmRequestedAt == request.time)
+          // The owner removes a member, alongside taking them off the team.
+          || (isListingOwner()
+            && resource.data.status == 'accepted'
+            && incoming().status == 'removed'
+            && changedKeys().hasOnly(['status'])
+            && !(applicantId in listingAfter().get('memberIds', [])))
+          // A new lead takes over the team's applications after a handover.
+          || (isListingOwner()
+            && changedKeys().hasOnly(['ownerId'])
+            && incoming().ownerId == request.auth.uid)
         );
 
         allow delete: if false;
+      }
+
+      // ---------- private team workspace (US13, US14) ----------
+
+      match /milestones/{milestoneId} {
+        allow read: if inTeam(listingId);
+        allow create: if inTeam(listingId)
+          && validMilestone(listingId, incoming())
+          && incoming().createdBy == request.auth.uid
+          && incoming().createdAt == request.time;
+        // The lead, the milestone's creator and the person it's assigned to can update it.
+        allow update: if inTeam(listingId)
+          && validMilestone(listingId, incoming())
+          && !changedKeys().hasAny(['createdBy', 'createdAt'])
+          && (leadsTeam(listingId) || resource.data.createdBy == request.auth.uid
+              || resource.data.assigneeId == request.auth.uid);
+        allow delete: if leadsTeam(listingId)
+          || (inTeam(listingId) && resource.data.createdBy == request.auth.uid);
+      }
+
+      match /updates/{updateId} {
+        allow read: if inTeam(listingId);
+        allow create: if inTeam(listingId)
+          && incoming().keys().hasOnly(['authorId', 'authorName', 'text', 'link', 'createdAt'])
+          && incoming().authorId == request.auth.uid
+          && text(incoming().authorName, 1, 60)
+          && text(incoming().text, 1, 1000)
+          && optionalText(incoming(), 'link', 300)
+          && incoming().createdAt == request.time;
+        allow delete: if inTeam(listingId)
+          && (resource.data.authorId == request.auth.uid || leadsTeam(listingId));
+      }
+
+      match /deliverables/{deliverableId} {
+        allow read: if inTeam(listingId);
+        allow create: if inTeam(listingId)
+          && incoming().keys().hasOnly(['label', 'url', 'addedBy', 'addedByName', 'createdAt'])
+          && incoming().addedBy == request.auth.uid
+          && text(incoming().addedByName, 1, 60)
+          && text(incoming().label, 1, 60)
+          && text(incoming().url, 10, 300) && incoming().url.matches('https?://.+')
+          && incoming().createdAt == request.time;
+        allow delete: if inTeam(listingId)
+          && (resource.data.addedBy == request.auth.uid || leadsTeam(listingId));
+      }
+
+      // What each person is responsible for. The lead sets anyone's; members set their own.
+      match /responsibilities/{memberId} {
+        allow read: if inTeam(listingId);
+        allow create, update: if inTeam(listingId)
+          && (leadsTeam(listingId) || isUser(memberId))
+          && (memberId == teamOf(listingId).ownerId || memberId in teamOf(listingId).get('memberIds', []))
+          && incoming().keys().hasOnly(['text', 'updatedBy', 'updatedAt'])
+          && text(incoming().text, 0, 300)
+          && incoming().updatedBy == request.auth.uid
+          && incoming().updatedAt == request.time;
+        allow delete: if leadsTeam(listingId);
       }
     }
 
@@ -204,10 +417,69 @@ service cloud.firestore {
         && (resource.data.applicantId == request.auth.uid || resource.data.ownerId == request.auth.uid);
     }
 
+    // ---------- team helpers ----------
+
+    function teamOf(listingId) {
+      return get(/databases/$(database)/documents/listings/$(listingId)).data;
+    }
+
+    function leadsTeam(listingId) {
+      return signedIn() && teamOf(listingId).ownerId == request.auth.uid;
+    }
+
+    // Former members lose access the moment they leave the member list.
+    function inTeam(listingId) {
+      return leadsTeam(listingId)
+        || (signedIn() && request.auth.uid in teamOf(listingId).get('memberIds', []));
+    }
+
+    function validMember(m) {
+      return m is map
+        && m.keys().hasOnly(['name', 'major', 'roleId', 'roleTitle', 'joinedAt'])
+        && text(m.name, 1, 60)
+        && m.major is string
+        && m.roleId is string
+        && m.roleTitle is string
+        && m.joinedAt is timestamp;
+    }
+
+    // Exactly the accepted role loses one open place; every other role stays as it was.
+    // Listings have at most eight roles, so each position is checked explicitly.
+    function roleStep(before, after, i, roleId) {
+      return i >= before.size()
+        || after[i] == before[i]
+        || (before[i].id == roleId
+            && before[i].openings > 0
+            && after[i].diff(before[i]).affectedKeys().hasOnly(['openings'])
+            && after[i].openings == before[i].openings - 1);
+    }
+
+    function rolesDecremented(before, after, roleId) {
+      return after.size() == before.size()
+        && roleStep(before, after, 0, roleId) && roleStep(before, after, 1, roleId)
+        && roleStep(before, after, 2, roleId) && roleStep(before, after, 3, roleId)
+        && roleStep(before, after, 4, roleId) && roleStep(before, after, 5, roleId)
+        && roleStep(before, after, 6, roleId) && roleStep(before, after, 7, roleId);
+    }
+
+    function validMilestone(listingId, d) {
+      let team = teamOf(listingId);
+      return d.keys().hasOnly(['title', 'assigneeId', 'assigneeName', 'dueDate', 'status', 'createdBy',
+                               'createdAt', 'updatedAt', 'completedAt'])
+        && text(d.title, 1, 80)
+        && d.status in ['todo', 'doing', 'done']
+        && (d.assigneeId == team.ownerId || d.assigneeId in team.get('memberIds', []))
+        && d.assigneeName is string
+        && optionalTimestamp(d, 'dueDate')
+        && optionalTimestamp(d, 'completedAt')
+        && d.updatedAt == request.time;
+    }
+
     function applicationKeys(d) {
       return d.keys().hasOnly(['listingId', 'ownerId', 'applicantId', 'applicantName', 'applicantMajor', 'listingTitle',
                                'listingKind', 'roleId', 'roleTitle', 'contribution', 'hoursPerWeek', 'availabilityNote',
-                               'status', 'reviewed', 'createdAt', 'updatedAt']);
+                               'status', 'reviewed', 'createdAt', 'updatedAt', 'offeredAt', 'offerExpiresAt',
+                               'respondedAt', 'reconfirmRequestedAt']);
     }
 
     function validAnswer(d) {
@@ -226,7 +498,8 @@ service cloud.firestore {
                                'createdAt', 'updatedAt', 'outcome', 'roles', 'hoursPerWeek', 'duration', 'teamSize',
                                'openPlaces', 'deadline', 'skills', 'eventId', 'event', 'eventType', 'organizer',
                                'sourceUrl', 'startDate', 'endDate', 'registrationDeadline', 'eligibility',
-                               'teamSizeMin', 'teamSizeMax', 'format', 'location'])
+                               'eligibleLevel', 'teamSizeMin', 'teamSizeMax', 'format', 'location',
+                               'members', 'memberIds', 'pendingLeader', 'reopenedAt'])
         && d.kind in ['project', 'team', 'event']
         && d.status in ['open', 'closed']
         && text(d.title, 4, 90)
@@ -234,13 +507,17 @@ service cloud.firestore {
         && text(d.ownerName, 1, 60)
         && optionalText(d, 'ownerMajor', 80)
         && d.updatedAt == request.time
+        && d.get('members', {}) is map
+        && d.get('memberIds', []) is list
         && (d.kind == 'event' ? validEvent(d) : validRecruitment(d));
     }
 
     function validRecruitment(d) {
       return d.roles is list && d.roles.size() >= 1 && d.roles.size() <= 8
-        && intBetween(d.openPlaces, 1, 80)
+        && intBetween(d.openPlaces, 0, 80)
         && intBetween(d.teamSize, 1, 20)
+        // The lead plus everyone who joined through Takatuf.
+        && d.teamSize >= 1 + d.get('memberIds', []).size()
         && intBetween(d.hoursPerWeek, 1, 60)
         && optionalText(d, 'duration', 40)
         && optionalTimestamp(d, 'deadline')
@@ -267,6 +544,7 @@ service cloud.firestore {
         && (!('registrationDeadline' in d) || d.registrationDeadline == null
             || (d.registrationDeadline is timestamp && d.registrationDeadline <= d.endDate))
         && text(d.eligibility, 1, 500)
+        && d.get('eligibleLevel', 'any') in ['any', 'undergraduate', 'graduate']
         && intBetween(d.teamSizeMin, 1, 20)
         && intBetween(d.teamSizeMax, 1, 20)
         && d.teamSizeMin <= d.teamSizeMax

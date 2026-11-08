@@ -56,9 +56,14 @@ data class ListingDetailUiState(
     /** Bumped after a successful application so the sheet closes. */
     val appliedAt: Long = 0,
     val busy: Boolean = false,
+    /** Bumped after accepting an offer, so the screen can open the team. */
+    val joinedAt: Long = 0,
     val message: UserMessage? = null,
 ) {
     val isOwner: Boolean get() = listing != null && listing.ownerId == myUid
+
+    /** The lead or a confirmed member. */
+    val onTeam: Boolean get() = listing?.isOnTeam(myUid) == true
     val notFound: Boolean get() = !loading && error == null && listing == null
 }
 
@@ -67,6 +72,7 @@ private data class Transient(
     val applyError: AppError? = null,
     val appliedAt: Long = 0,
     val busy: Boolean = false,
+    val joinedAt: Long = 0,
     val message: UserMessage? = null,
 )
 
@@ -164,6 +170,7 @@ class ListingDetailViewModel(
                 applyError = t.applyError,
                 appliedAt = t.appliedAt,
                 busy = t.busy,
+                joinedAt = t.joinedAt,
                 message = t.message,
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ListingDetailUiState())
@@ -208,13 +215,29 @@ class ListingDetailViewModel(
 
     fun withdraw() = runBusy(R.string.msg_application_withdrawn) { applications.withdraw(listingId, uid) }
 
+    /** Joins the team. Capacity and the offer's expiry are checked in the same transaction (US12). */
+    fun acceptOffer() {
+        val me = session.profile ?: return
+        runBusy(R.string.msg_joined_team, listOf(state.value.listing?.title.orEmpty()), joined = true) {
+            applications.acceptOffer(listingId, me)
+        }
+    }
+
+    fun declineOffer() = runBusy(R.string.msg_offer_declined, listOf(state.value.listing?.title.orEmpty())) {
+        applications.declineOffer(listingId, uid)
+    }
+
+    fun confirmInterest() = runBusy(R.string.msg_interest_confirmed, listOf(state.value.listing?.title.orEmpty())) {
+        applications.confirmInterest(listingId, uid)
+    }
+
     fun setRecruitmentOpen(open: Boolean) = runBusy(
         if (open) R.string.msg_recruitment_reopened else R.string.msg_recruitment_closed,
     ) {
         listings.setStatus(listingId, if (open) ListingStatus.Open else ListingStatus.Closed)
     }
 
-    private fun runBusy(successMessage: Int, block: suspend () -> Unit) {
+    private fun runBusy(successMessage: Int, args: List<Any> = emptyList(), joined: Boolean = false, block: suspend () -> Unit) {
         if (transient.value.busy) return
         transient.update { it.copy(busy = true) }
         viewModelScope.launch {
@@ -222,8 +245,9 @@ class ListingDetailViewModel(
             transient.update {
                 it.copy(
                     busy = false,
+                    joinedAt = if (joined && result.isSuccess) System.nanoTime() else it.joinedAt,
                     message = result.fold(
-                        onSuccess = { UserMessage(successMessage) },
+                        onSuccess = { UserMessage(successMessage, args) },
                         onFailure = { e -> UserMessage(e.toAppError().message) },
                     ),
                 )

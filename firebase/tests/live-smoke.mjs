@@ -1,6 +1,6 @@
 // End-to-end check of a real Firebase project after `npm run deploy:firestore`.
 // It signs up three throwaway QA accounts, performs the same reads and writes the Android app
-// makes, and checks each Sprint 1 permission. Everything it creates is recorded in
+// makes, and checks each Sprint 1 and Sprint 2 permission. Everything it creates is recorded in
 // tests/.live-smoke-created.json so `npm run smoke:cleanup` can remove it.
 //
 //   npm run smoke
@@ -8,8 +8,9 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import {
-  Timestamp, collection, collectionGroup, doc, getDoc, getDocs, getFirestore, limit, orderBy,
-  query, serverTimestamp, setDoc, terminate, updateDoc, where, writeBatch,
+  Timestamp, arrayRemove, arrayUnion, collection, collectionGroup, deleteField, doc, getDoc, getDocs,
+  getFirestore, limit, orderBy, query, runTransaction, serverTimestamp, setDoc, terminate, updateDoc,
+  where, writeBatch,
 } from 'firebase/firestore';
 
 const services = JSON.parse(readFileSync(new URL('../../app/google-services.json', import.meta.url), 'utf8'));
@@ -219,6 +220,132 @@ await check('a closed listing refuses a new application', async () => {
   await denied(updateDoc(appRef(applicant.db), {
     status: 'submitted', reviewed: false, contribution: 'Trying again after the listing closed.', updatedAt: serverTimestamp(),
   }));
+});
+
+// ---------- Sprint 2 ----------
+console.log('\nUS12–US16 offers, workspace, reopening and leadership');
+const team2Ref = doc(collection(owner.db, 'listings'));
+created.docs.push(`listings/${team2Ref.id}`);
+record();
+const team2 = (db) => doc(db, 'listings', team2Ref.id);
+const app2 = (db, uid) => doc(db, 'listings', team2Ref.id, 'applications', uid);
+const team2Listing = {
+  ...projectListing,
+  status: 'open',
+  title: `[QA ${RUN}] Sprint 2 smoke test`,
+  roles: [{ ...role, openings: 1 }, { id: 'ux', title: 'Designer', description: '', skills: ['Figma'], openings: 1 }],
+  openPlaces: 2,
+  skills: ['kotlin', 'figma'],
+};
+
+// What ApplicationRepository.acceptOffer does: one transaction for the listing and the offer.
+const join = (s, roleId, roleTitle, name) => runTransaction(s.db, async (tx) => {
+  const l = (await tx.get(team2(s.db))).data();
+  tx.update(team2(s.db), {
+    roles: l.roles.map((r) => (r.id === roleId ? { ...r, openings: r.openings - 1 } : r)),
+    openPlaces: l.openPlaces - 1,
+    teamSize: l.teamSize + 1,
+    [`members.${s.uid}`]: { name, major: 'Computer Science', roleId, roleTitle, joinedAt: serverTimestamp() },
+    memberIds: arrayUnion(s.uid),
+    updatedAt: serverTimestamp(),
+  });
+  tx.update(app2(s.db, s.uid), { status: 'accepted', respondedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+});
+
+await check('an owner publishes a second project', () => setDoc(team2Ref, team2Listing));
+await check('two students apply, each sharing their passport', async () => {
+  for (const [s, roleId, roleTitle, name] of [
+    [applicant, 'mob', 'Mobile developer', 'QA Applicant'],
+    [outsider, 'ux', 'Designer', 'QA Outsider'],
+  ]) {
+    const batch = writeBatch(s.db);
+    batch.set(app2(s.db, s.uid), {
+      ...application, applicantId: s.uid, applicantName: name, listingId: team2Ref.id,
+      listingTitle: team2Listing.title, roleId, roleTitle,
+    });
+    batch.set(doc(s.db, 'passports', s.uid, 'viewers', owner.uid), { listingId: team2Ref.id, grantedAt: serverTimestamp() });
+    await batch.commit();
+  }
+});
+await check('the owner offers a place until the end of a chosen day', () =>
+  updateDoc(app2(owner.db, applicant.uid), { status: 'offered', reviewed: true, offeredAt: serverTimestamp(), offerExpiresAt: endOfDay(3) }));
+await check('a student without an offer cannot join', () => denied(join(outsider, 'ux', 'Designer', 'QA Outsider')));
+await check('the offered student accepts and joins in one transaction', () => join(applicant, 'mob', 'Mobile developer', 'QA Applicant'));
+await check('the team counts them and their role is full', async () => {
+  const l = (await getDoc(team2(owner.db))).data();
+  const mob = l.roles.find((r) => r.id === 'mob');
+  if (!l.memberIds.includes(applicant.uid) || l.teamSize !== 2 || l.openPlaces !== 1 || mob.openings !== 0) {
+    throw new Error(`unexpected team state: ${JSON.stringify({ memberIds: l.memberIds, teamSize: l.teamSize, openPlaces: l.openPlaces })}`);
+  }
+});
+
+const milestoneRef = doc(collection(applicant.db, 'listings', team2Ref.id, 'milestones'));
+await check('members and the lead record milestones, updates, links and responsibilities', async () => {
+  await setDoc(milestoneRef, {
+    title: 'First prototype', assigneeId: applicant.uid, assigneeName: 'QA Applicant', dueDate: endOfDay(5),
+    status: 'todo', createdBy: applicant.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp(), completedAt: null,
+  });
+  await updateDoc(doc(owner.db, 'listings', team2Ref.id, 'milestones', milestoneRef.id), {
+    status: 'done', completedAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  });
+  await setDoc(doc(collection(applicant.db, 'listings', team2Ref.id, 'updates')), {
+    authorId: applicant.uid, authorName: 'QA Applicant', text: 'Smoke test update', link: '', createdAt: serverTimestamp(),
+  });
+  await setDoc(doc(collection(owner.db, 'listings', team2Ref.id, 'deliverables')), {
+    label: 'Repository', url: 'https://example.org/qa', addedBy: owner.uid, addedByName: 'QA Owner', createdAt: serverTimestamp(),
+  });
+  await setDoc(doc(applicant.db, 'listings', team2Ref.id, 'responsibilities', applicant.uid), {
+    text: 'Android app', updatedBy: applicant.uid, updatedAt: serverTimestamp(),
+  });
+});
+await check('students outside the team cannot read the workspace', async () => {
+  await denied(getDocs(collection(outsider.db, 'listings', team2Ref.id, 'milestones')));
+  await denied(getDocs(collection(outsider.db, 'listings', team2Ref.id, 'updates')));
+  await denied(getDocs(collection(outsider.db, 'listings', team2Ref.id, 'deliverables')));
+});
+
+await check('a leadership request changes nothing until it is accepted', async () => {
+  await updateDoc(team2(owner.db), {
+    pendingLeader: { uid: applicant.uid, name: 'QA Applicant', requestedAt: serverTimestamp() }, updatedAt: serverTimestamp(),
+  });
+  await denied(updateDoc(team2(outsider.db), { ownerId: outsider.uid, ownerName: 'QA Outsider', pendingLeader: null, updatedAt: serverTimestamp() }));
+  if ((await getDoc(team2(owner.db))).data().ownerId !== owner.uid) throw new Error('the lead changed early');
+});
+await check('the nominee accepts; the previous lead stays on as a member', () => runTransaction(applicant.db, async (tx) => {
+  const l = (await tx.get(team2(applicant.db))).data();
+  tx.update(team2(applicant.db), {
+    ownerId: applicant.uid, ownerName: 'QA Applicant', ownerMajor: 'Computer Science', pendingLeader: null,
+    [`members.${applicant.uid}`]: deleteField(),
+    [`members.${owner.uid}`]: { name: l.ownerName, major: l.ownerMajor, roleId: '', roleTitle: '', joinedAt: l.createdAt },
+    memberIds: [owner.uid],
+    updatedAt: serverTimestamp(),
+  });
+}));
+await check('the new lead takes over the applications and the passport access that came with them', async () => {
+  await updateDoc(app2(applicant.db, outsider.uid), { ownerId: applicant.uid });
+  await setDoc(doc(applicant.db, 'passports', outsider.uid, 'viewers', applicant.uid), { listingId: team2Ref.id, grantedAt: serverTimestamp() });
+});
+
+await check('the new lead reopens the filled role and asks earlier applicants to reconfirm', async () => {
+  const l = (await getDoc(team2(applicant.db))).data();
+  const batch = writeBatch(applicant.db);
+  batch.update(team2(applicant.db), {
+    roles: l.roles.map((r) => (r.id === 'mob' ? { ...r, openings: r.openings + 1 } : r)),
+    openPlaces: l.openPlaces + 1, status: 'open', reopenedAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  });
+  batch.update(app2(applicant.db, outsider.uid), { status: 'reconfirm', reviewed: false, reconfirmRequestedAt: serverTimestamp() });
+  await batch.commit();
+});
+await check('the earlier applicant confirms they are still interested', () =>
+  updateDoc(app2(outsider.db, outsider.uid), { status: 'submitted', reviewed: false, updatedAt: serverTimestamp() }));
+await check('a member leaves and loses workspace access at once', async () => {
+  await runTransaction(owner.db, async (tx) => {
+    const l = (await tx.get(team2(owner.db))).data();
+    tx.update(team2(owner.db), {
+      [`members.${owner.uid}`]: deleteField(), memberIds: arrayRemove(owner.uid), teamSize: l.teamSize - 1, updatedAt: serverTimestamp(),
+    });
+  });
+  await denied(getDocs(collection(owner.db, 'listings', team2Ref.id, 'milestones')));
 });
 
 for (const s of [owner, applicant, outsider]) {

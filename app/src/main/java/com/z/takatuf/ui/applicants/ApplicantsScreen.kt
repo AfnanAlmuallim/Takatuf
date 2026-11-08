@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Diversity3
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarOutline
@@ -51,7 +52,12 @@ import com.z.takatuf.data.AppError
 import com.z.takatuf.data.model.Application
 import com.z.takatuf.data.model.ApplicationStatus
 import com.z.takatuf.data.model.PassportAccess
-import com.z.takatuf.ui.activity.ApplicationStatusTag
+import com.z.takatuf.domain.ApplicantFit
+import com.z.takatuf.ui.common.ApplicationStatusTag
+import com.z.takatuf.ui.common.BottomActionBar
+import com.z.takatuf.ui.common.FitBadge
+import com.z.takatuf.ui.common.FitFacts
+import com.z.takatuf.ui.common.PrimaryButton
 import com.z.takatuf.ui.appViewModel
 import com.z.takatuf.ui.common.EmptyState
 import com.z.takatuf.ui.common.ErrorState
@@ -69,9 +75,10 @@ fun ApplicantsScreen(
     onBack: () -> Unit,
     onOpenApplicant: (listingId: String, applicantId: String) -> Unit,
     onOpenListing: (String) -> Unit,
+    onBuildTeam: (String) -> Unit,
 ) {
     val viewModel = appViewModel { c, handle: SavedStateHandle ->
-        ApplicantsViewModel(handle.toRoute<ApplicantsRoute>().listingId, c.listings, c.applications, c.profiles)
+        ApplicantsViewModel(handle.toRoute<ApplicantsRoute>().listingId, c.session, c.listings, c.applications, c.profiles)
     }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
@@ -80,6 +87,18 @@ fun ApplicantsScreen(
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
+        bottomBar = {
+            // From individual applicants to whole teams: one tap to see suggested combinations.
+            if (listing != null && state.canSuggestTeam) {
+                BottomActionBar {
+                    PrimaryButton(
+                        text = stringResource(R.string.action_suggest_team),
+                        onClick = { onBuildTeam(listing.id) },
+                        icon = Icons.Rounded.Diversity3,
+                    )
+                }
+            }
+        },
         topBar = {
             TopAppBar(
                 title = {
@@ -156,6 +175,7 @@ fun ApplicantsScreen(
                             itemsIndexed(shown, key = { _, it -> it.applicantId }) { index, application ->
                                 ApplicantRow(
                                     application = application,
+                                    fit = state.fits[application.applicantId],
                                     passport = state.passports[application.applicantId],
                                     roleSkills = roleSkills[application.roleId].orEmpty(),
                                     onClick = { onOpenApplicant(application.listingId, application.applicantId) },
@@ -178,7 +198,9 @@ private fun filterLabel(filter: ApplicantFilter) = when (filter) {
     ApplicantFilter.All -> R.string.applicants_filter_all
     ApplicantFilter.New -> R.string.applicants_filter_new
     ApplicantFilter.Shortlisted -> R.string.applicants_filter_shortlisted
-    ApplicantFilter.Withdrawn -> R.string.applicants_filter_withdrawn
+    ApplicantFilter.Offered -> R.string.applicants_filter_offered
+    ApplicantFilter.Joined -> R.string.applicants_filter_joined
+    ApplicantFilter.Past -> R.string.applicants_filter_past
 }
 
 /**
@@ -188,6 +210,7 @@ private fun filterLabel(filter: ApplicantFilter) = when (filter) {
 @Composable
 private fun ApplicantRow(
     application: Application,
+    fit: ApplicantFit?,
     passport: PassportAccess?,
     roleSkills: List<String>,
     onClick: () -> Unit,
@@ -221,11 +244,17 @@ private fun ApplicantRow(
                 }
             }
             Text(
-                stringResource(R.string.applicant_role_hours, application.roleTitle, application.hoursPerWeek),
+                application.roleTitle,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(Modifier.height(6.dp))
+            if (fit != null && application.status.isActive) {
+                Spacer(Modifier.height(8.dp))
+                FitBadge(fit)
+                Spacer(Modifier.height(6.dp))
+                FitFacts(fit)
+            }
+            Spacer(Modifier.height(8.dp))
             Text(
                 application.contribution,
                 style = MaterialTheme.typography.bodyMedium,
@@ -246,16 +275,16 @@ private fun ApplicantRow(
                 }
                 else -> Unit
             }
-            if (!application.status.isActive || application.status == ApplicationStatus.Shortlisted) {
+            if (application.status != ApplicationStatus.Submitted) {
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    ApplicationStatusTag(application.status)
+                    ApplicationStatusTag(application, forOwner = true)
                     Spacer(Modifier.width(8.dp))
                     Text(relativeTime(application.updatedAt), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
-        if (application.status.isActive) {
+        if (application.status == ApplicationStatus.Submitted || application.status == ApplicationStatus.Shortlisted) {
             val shortlisted = application.status == ApplicationStatus.Shortlisted
             IconToggleButton(
                 checked = shortlisted,

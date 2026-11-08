@@ -20,11 +20,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.Diversity3
 import androidx.compose.material.icons.rounded.Groups
-import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.MarkEmailUnread
 import androidx.compose.material.icons.rounded.Star
-import androidx.compose.material.icons.automirrored.rounded.Undo
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -61,7 +65,10 @@ import com.z.takatuf.ui.common.EmptyState
 import com.z.takatuf.ui.common.ErrorState
 import com.z.takatuf.ui.common.Fact
 import com.z.takatuf.ui.common.KindLabel
+import com.z.takatuf.ui.common.AnswerCard
+import com.z.takatuf.ui.common.ApplicationStatusTag
 import com.z.takatuf.ui.common.LoadingRows
+import com.z.takatuf.ui.common.MessageEffect
 import com.z.takatuf.ui.common.NewDot
 import com.z.takatuf.ui.common.SeatRing
 import com.z.takatuf.ui.common.Tag
@@ -78,19 +85,33 @@ fun ActivityScreen(
     onOpenApplicants: (String) -> Unit,
     onDiscover: () -> Unit,
     onPost: (ListingKind) -> Unit,
+    onOpenTeam: (String) -> Unit,
 ) {
     val viewModel = appViewModel { c, _ -> ActivityViewModel(c.session, c.listings, c.applications) }
     val state by viewModel.state.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableIntStateOf(-1) }
     var showPost by rememberSaveable { mutableStateOf(false) }
+    var confirmDecline by remember { mutableStateOf<Application?>(null) }
+    val snackbar = remember { SnackbarHostState() }
+    MessageEffect(state.message, snackbar, viewModel::messageShown)
+    // Accepting an offer goes straight to the team's workspace.
+    LaunchedEffect(state.joinedListingId) {
+        state.joinedListingId?.let { viewModel.joinHandled(); onOpenTeam(it) }
+    }
     // Open on whichever side needs attention first.
     LaunchedEffect(state.loading) {
-        if (!state.loading && tab == -1) tab = if (state.newApplicants > 0 || state.applications.isEmpty() && state.owned.isNotEmpty()) 1 else 0
+        if (!state.loading && tab == -1) {
+            tab = when {
+                state.needsAnswer > 0 -> 0
+                state.newApplicants > 0 || state.applications.isEmpty() && state.owned.isNotEmpty() -> 1
+                else -> 0
+            }
+        }
     }
     val selected = tab.coerceAtLeast(0)
     val now = remember(state) { Instant.now() }
 
-    Scaffold(contentWindowInsets = WindowInsets.statusBars) { padding ->
+    Scaffold(contentWindowInsets = WindowInsets.statusBars, snackbarHost = { SnackbarHost(snackbar) }) { padding ->
         Column(
             Modifier
                 .fillMaxSize()
@@ -108,7 +129,13 @@ fun ActivityScreen(
                 Tab(
                     selected = selected == 0,
                     onClick = { tab = 0 },
-                    text = { TabLabel(stringResource(R.string.activity_tab_applications), count = state.activeApplications, highlight = false) },
+                    text = {
+                        if (state.needsAnswer > 0) {
+                            TabLabel(stringResource(R.string.activity_tab_applications), count = state.needsAnswer, highlight = true)
+                        } else {
+                            TabLabel(stringResource(R.string.activity_tab_applications), count = state.activeApplications, highlight = false)
+                        }
+                    },
                 )
                 Tab(
                     selected = selected == 1,
@@ -119,13 +146,35 @@ fun ActivityScreen(
             when {
                 state.loading -> LoadingRows()
                 state.error != null -> ErrorState(state.error!!, viewModel::retry)
-                selected == 0 -> ApplicationsList(state.applications, onOpenListing, onDiscover)
+                selected == 0 -> ApplicationsList(
+                    applications = state.applications,
+                    busyListingId = state.busyListingId,
+                    onOpenListing = onOpenListing,
+                    onDiscover = onDiscover,
+                    onAccept = viewModel::acceptOffer,
+                    onDecline = { confirmDecline = it },
+                    onConfirmInterest = viewModel::confirmInterest,
+                    onWithdraw = viewModel::withdraw,
+                )
                 else -> OwnedList(state.owned, now, onOpenListing, onOpenApplicants, onPost = { showPost = true })
             }
         }
     }
     if (showPost) {
         PostSheet(onPick = { showPost = false; onPost(it) }, onDismiss = { showPost = false })
+    }
+    confirmDecline?.let { application ->
+        AlertDialog(
+            onDismissRequest = { confirmDecline = null },
+            title = { Text(stringResource(R.string.decline_offer_title)) },
+            text = { Text(stringResource(R.string.decline_offer_body, application.listingTitle)) },
+            confirmButton = {
+                TextButton(onClick = { confirmDecline = null; viewModel.declineOffer(application) }) {
+                    Text(stringResource(R.string.action_decline))
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmDecline = null }) { Text(stringResource(R.string.action_cancel)) } },
+        )
     }
 }
 
@@ -147,7 +196,16 @@ private fun TabLabel(text: String, count: Int, highlight: Boolean) {
 }
 
 @Composable
-private fun ApplicationsList(applications: List<Application>, onOpenListing: (String) -> Unit, onDiscover: () -> Unit) {
+private fun ApplicationsList(
+    applications: List<Application>,
+    busyListingId: String?,
+    onOpenListing: (String) -> Unit,
+    onDiscover: () -> Unit,
+    onAccept: (Application) -> Unit,
+    onDecline: (Application) -> Unit,
+    onConfirmInterest: (Application) -> Unit,
+    onWithdraw: (Application) -> Unit,
+) {
     if (applications.isEmpty()) {
         EmptyState(
             title = stringResource(R.string.activity_no_applications_title),
@@ -159,21 +217,76 @@ private fun ApplicationsList(applications: List<Application>, onOpenListing: (St
     }
     LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
         itemsIndexed(applications, key = { _, it -> it.listingId }) { index, application ->
-            ApplicationRow(application, onClick = { onOpenListing(application.listingId) })
+            ApplicationRow(
+                application = application,
+                busy = busyListingId == application.listingId,
+                onClick = { onOpenListing(application.listingId) },
+                onAccept = { onAccept(application) },
+                onDecline = { onDecline(application) },
+                onConfirmInterest = { onConfirmInterest(application) },
+                onWithdraw = { onWithdraw(application) },
+            )
             if (index < applications.lastIndex) HorizontalDivider(Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.outlineVariant)
         }
     }
 }
 
 @Composable
-private fun ApplicationRow(application: Application, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
+private fun ApplicationRow(
+    application: Application,
+    busy: Boolean,
+    onClick: () -> Unit,
+    onAccept: () -> Unit,
+    onDecline: () -> Unit,
+    onConfirmInterest: () -> Unit,
+    onWithdraw: () -> Unit,
+) {
+    val now = Instant.now()
+    Column(
+        Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .padding(start = 20.dp, end = 12.dp, top = 14.dp, bottom = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
+        ApplicationSummary(application)
+        // Answers that can't wait sit on the row itself, one tap away.
+        when {
+            application.hasLiveOffer(now) -> AnswerRow(
+                prompt = stringResource(R.string.offer_prompt, application.roleTitle),
+                busy = busy,
+                primary = stringResource(R.string.action_accept_offer),
+                onPrimary = onAccept,
+                secondary = stringResource(R.string.action_decline),
+                onSecondary = onDecline,
+            )
+            application.status == ApplicationStatus.Reconfirm -> AnswerRow(
+                prompt = stringResource(R.string.reconfirm_prompt),
+                busy = busy,
+                primary = stringResource(R.string.action_still_interested),
+                onPrimary = onConfirmInterest,
+                secondary = stringResource(R.string.action_withdraw),
+                onSecondary = onWithdraw,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AnswerRow(
+    prompt: String,
+    busy: Boolean,
+    primary: String,
+    onPrimary: () -> Unit,
+    secondary: String,
+    onSecondary: () -> Unit,
+) {
+    Spacer(Modifier.height(12.dp))
+    AnswerCard(prompt, busy, primary, onPrimary, secondary, onSecondary)
+}
+
+@Composable
+private fun ApplicationSummary(application: Application) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(
                 application.listingTitle,
@@ -189,25 +302,16 @@ private fun ApplicationRow(application: Application, onClick: () -> Unit) {
             )
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                ApplicationStatusTag(application.status)
+                ApplicationStatusTag(application, forOwner = false)
                 Spacer(Modifier.width(10.dp))
                 Text(
-                    relativeTime(application.updatedAt),
+                    relativeTime(application.lastActivityAt),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
         Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-@Composable
-fun ApplicationStatusTag(status: ApplicationStatus) {
-    when (status) {
-        ApplicationStatus.Submitted -> Tag(stringResource(R.string.status_under_review), icon = Icons.Rounded.Schedule)
-        ApplicationStatus.Shortlisted -> Tag(stringResource(R.string.status_shortlisted), icon = Icons.Rounded.Star, tone = TagTone.Accent)
-        ApplicationStatus.Withdrawn -> Tag(stringResource(R.string.status_withdrawn), icon = Icons.AutoMirrored.Rounded.Undo, tone = TagTone.Quiet)
     }
 }
 
@@ -294,6 +398,12 @@ private fun OwnedRow(item: OwnedListing, now: Instant, onClick: () -> Unit) {
                     }
                     if (item.shortlisted > 0) {
                         Fact(Icons.Rounded.Star, pluralStringResource(R.plurals.shortlisted_count, item.shortlisted, item.shortlisted), color = MaterialTheme.colorScheme.primary)
+                    }
+                    if (item.offered > 0) {
+                        Fact(Icons.Rounded.MarkEmailUnread, pluralStringResource(R.plurals.offers_out_count, item.offered, item.offered))
+                    }
+                    if (listing.members.isNotEmpty()) {
+                        Fact(Icons.Rounded.Diversity3, pluralStringResource(R.plurals.members_joined_count, listing.members.size, listing.members.size))
                     }
                 }
             }

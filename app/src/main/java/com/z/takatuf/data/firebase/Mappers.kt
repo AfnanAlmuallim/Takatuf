@@ -5,6 +5,8 @@ import com.google.firebase.firestore.FieldValue
 import com.z.takatuf.data.model.Application
 import com.z.takatuf.data.model.ApplicationStatus
 import com.z.takatuf.data.model.Availability
+import com.z.takatuf.data.model.Deliverable
+import com.z.takatuf.data.model.EligibleLevel
 import com.z.takatuf.data.model.EventDetails
 import com.z.takatuf.data.model.EventFormat
 import com.z.takatuf.data.model.EventType
@@ -14,12 +16,17 @@ import com.z.takatuf.data.model.LinkedEvent
 import com.z.takatuf.data.model.Listing
 import com.z.takatuf.data.model.ListingKind
 import com.z.takatuf.data.model.ListingStatus
+import com.z.takatuf.data.model.Milestone
+import com.z.takatuf.data.model.MilestoneStatus
 import com.z.takatuf.data.model.Passport
+import com.z.takatuf.data.model.PendingLeader
 import com.z.takatuf.data.model.Profile
 import com.z.takatuf.data.model.Recruitment
 import com.z.takatuf.data.model.Role
 import com.z.takatuf.data.model.Skill
 import com.z.takatuf.data.model.SkillLevel
+import com.z.takatuf.data.model.TeamMember
+import com.z.takatuf.data.model.TeamUpdate
 import com.z.takatuf.data.model.Visibility
 import com.z.takatuf.data.model.Weekday
 import com.z.takatuf.domain.SkillMatcher
@@ -136,6 +143,7 @@ internal fun DocumentSnapshot.toListing(): Listing? {
             endDate = it.instant("endDate"),
             teamSizeMin = it.int("teamSizeMin", 1),
             teamSizeMax = it.int("teamSizeMax", 1),
+            eligibleLevel = EligibleLevel.from(it["eligibleLevel"] as? String),
         )
     }
     val event = if (kind == ListingKind.Event) {
@@ -154,6 +162,7 @@ internal fun DocumentSnapshot.toListing(): Listing? {
                 teamSizeMax = f.int("teamSizeMax", 1),
                 format = EventFormat.from(f["format"] as? String),
                 location = f.str("location"),
+                eligibleLevel = EligibleLevel.from(f["eligibleLevel"] as? String),
             )
         } else {
             null
@@ -175,6 +184,20 @@ internal fun DocumentSnapshot.toListing(): Listing? {
         recruitment = recruitment,
         linkedEvent = linkedEvent,
         event = event,
+        members = (f["members"] as? Map<*, *>).orEmpty().mapNotNull { (uid, value) ->
+            val m = value as? Map<*, *> ?: return@mapNotNull null
+            TeamMember(
+                uid = uid as? String ?: return@mapNotNull null,
+                name = m.str("name"),
+                major = m.str("major"),
+                roleId = m.str("roleId"),
+                roleTitle = m.str("roleTitle"),
+                joinedAt = m.instant("joinedAt"),
+            )
+        }.sortedBy { it.joinedAt },
+        pendingLeader = f.map("pendingLeader")?.let {
+            PendingLeader(uid = it.str("uid"), name = it.str("name"), requestedAt = it.instant("requestedAt"))
+        }?.takeIf { it.uid.isNotEmpty() },
     )
 }
 
@@ -224,6 +247,7 @@ internal fun Listing.toEditableFields(): Map<String, Any?> {
                 "endDate" to e.endDate?.toTimestamp(),
                 "teamSizeMin" to e.teamSizeMin,
                 "teamSizeMax" to e.teamSizeMax,
+                "eligibleLevel" to e.eligibleLevel.key,
             ),
         )
     }
@@ -240,6 +264,7 @@ internal fun Listing.toEditableFields(): Map<String, Any?> {
             "teamSizeMax" to e.teamSizeMax,
             "format" to e.format.key,
             "location" to e.location.trim(),
+            "eligibleLevel" to e.eligibleLevel.key,
         )
     }
     return fields
@@ -265,5 +290,51 @@ internal fun DocumentSnapshot.toApplication(): Application? {
         reviewed = f.bool("reviewed"),
         createdAt = f.instant("createdAt"),
         updatedAt = f.instant("updatedAt"),
+        offeredAt = f.instant("offeredAt"),
+        offerExpiresAt = f.instant("offerExpiresAt"),
+        respondedAt = f.instant("respondedAt"),
+        reconfirmRequestedAt = f.instant("reconfirmRequestedAt"),
+    )
+}
+
+internal fun DocumentSnapshot.toMilestone(): Milestone? {
+    if (!exists()) return null
+    val f = fields()
+    return Milestone(
+        id = id,
+        title = f.str("title"),
+        assigneeId = f.str("assigneeId"),
+        assigneeName = f.str("assigneeName"),
+        dueDate = f.instant("dueDate"),
+        status = MilestoneStatus.from(f["status"] as? String),
+        createdBy = f.str("createdBy"),
+        completedAt = f.instant("completedAt"),
+        updatedAt = f.instant("updatedAt"),
+    )
+}
+
+internal fun DocumentSnapshot.toTeamUpdate(): TeamUpdate? {
+    if (!exists()) return null
+    val f = fields()
+    return TeamUpdate(
+        id = id,
+        authorId = f.str("authorId"),
+        authorName = f.str("authorName"),
+        text = f.str("text"),
+        link = f.str("link"),
+        createdAt = f.instant("createdAt"),
+    )
+}
+
+internal fun DocumentSnapshot.toDeliverable(): Deliverable? {
+    if (!exists()) return null
+    val f = fields()
+    return Deliverable(
+        id = id,
+        label = f.str("label"),
+        url = f.str("url"),
+        addedBy = f.str("addedBy"),
+        addedByName = f.str("addedByName"),
+        createdAt = f.instant("createdAt"),
     )
 }

@@ -6,13 +6,16 @@ import com.google.firebase.firestore.Query
 import com.z.takatuf.data.firebase.awaitWrite
 import com.z.takatuf.data.firebase.observe
 import com.z.takatuf.data.firebase.toApplication
+import com.z.takatuf.data.firebase.toTimestamp
 import com.z.takatuf.data.model.Application
 import com.z.takatuf.data.model.ApplicationStatus
 import com.z.takatuf.data.model.Listing
 import com.z.takatuf.data.model.Profile
+import com.z.takatuf.domain.Dates
 import com.z.takatuf.data.model.Role
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.tasks.await
+import java.time.Instant
 
 class ApplicationRepository(private val db: FirebaseFirestore) {
 
@@ -57,7 +60,7 @@ class ApplicationRepository(private val db: FirebaseFirestore) {
     ) {
         val ref = ref(listing.id, applicant.uid)
         val existing = ref.get().await().toApplication()
-        if (existing != null && existing.status.isActive) throw AppException(AppError.AlreadyApplied)
+        if (existing != null && !existing.status.canReapply) throw AppException(AppError.AlreadyApplied)
 
         val answer = mapOf(
             "roleId" to role.id,
@@ -70,6 +73,8 @@ class ApplicationRepository(private val db: FirebaseFirestore) {
             "listingTitle" to listing.title,
             "status" to ApplicationStatus.Submitted.key,
             "reviewed" to false,
+            // The lead may have changed since an earlier application.
+            "ownerId" to listing.ownerId,
             "updatedAt" to FieldValue.serverTimestamp(),
         )
         val grant = db.collection(ProfileRepository.PASSPORTS).document(applicant.uid)
@@ -81,7 +86,6 @@ class ApplicationRepository(private val db: FirebaseFirestore) {
                 ref,
                 answer + mapOf(
                     "listingId" to listing.id,
-                    "ownerId" to listing.ownerId,
                     "applicantId" to applicant.uid,
                     "listingKind" to listing.kind.key,
                     "createdAt" to FieldValue.serverTimestamp(),
@@ -110,6 +114,127 @@ class ApplicationRepository(private val db: FirebaseFirestore) {
 
     suspend fun markReviewed(listingId: String, applicantId: String) {
         ref(listingId, applicantId).update("reviewed", true).awaitWrite()
+    }
+
+    /**
+     * Offers a place to each applicant. An offer only reserves nothing: the first people to
+     * accept fill the places, and the rules refuse acceptances once the team is full.
+     */
+    suspend fun sendOffers(listingId: String, applicantIds: Collection<String>, days: Int) {
+        if (applicantIds.isEmpty()) return
+        val expires = Dates.endOf(Dates.today().plusDays(days.toLong())).toTimestamp()
+        applicantIds.chunked(400).forEach { chunk ->
+            val batch = db.batch()
+            chunk.forEach { id ->
+                batch.update(
+                    ref(listingId, id),
+                    mapOf(
+                        "status" to ApplicationStatus.Offered.key,
+                        "reviewed" to true,
+                        "offeredAt" to FieldValue.serverTimestamp(),
+                        "offerExpiresAt" to expires,
+                    ),
+                )
+            }
+            batch.commit().awaitWrite()
+        }
+    }
+
+    suspend fun cancelOffer(listingId: String, applicantId: String) {
+        ref(listingId, applicantId).update("status", ApplicationStatus.Shortlisted.key).awaitWrite()
+    }
+
+    /**
+     * Accepts an offer and joins the team in one transaction: the application, the role's open
+     * places and the member list change together or not at all. Two people accepting the last
+     * place at once can't both succeed; the second retries, sees no place left and stops.
+     */
+    suspend fun acceptOffer(listingId: String, me: Profile) {
+        val listingRef = db.collection(ListingRepository.LISTINGS).document(listingId)
+        val appRef = ref(listingId, me.uid)
+        db.runTransaction { tx ->
+            val listingSnap = tx.get(listingRef)
+            val application = tx.get(appRef).toApplication() ?: throw AppException(AppError.OfferGone)
+            if (application.status != ApplicationStatus.Offered) throw AppException(AppError.OfferGone)
+            if (application.offerExpired(Instant.now())) throw AppException(AppError.OfferExpired)
+
+            val roles = (listingSnap.get("roles") as? List<*>)?.filterIsInstance<Map<*, *>>().orEmpty()
+            val index = roles.indexOfFirst { it["id"] == application.roleId }
+            val roleOpenings = (roles.getOrNull(index)?.get("openings") as? Number)?.toLong() ?: 0L
+            val openPlaces = listingSnap.getLong("openPlaces") ?: 0L
+            if (index < 0 || roleOpenings <= 0L || openPlaces <= 0L) throw AppException(AppError.TeamFull)
+
+            val updatedRoles = roles.mapIndexed { i, role ->
+                if (i == index) role.toMutableMap().apply { put("openings", roleOpenings - 1) } else role
+            }
+            tx.update(
+                listingRef,
+                mapOf(
+                    "roles" to updatedRoles,
+                    "openPlaces" to openPlaces - 1,
+                    "teamSize" to (listingSnap.getLong("teamSize") ?: 1L) + 1,
+                    "members.${me.uid}" to mapOf(
+                        "name" to me.displayName,
+                        "major" to me.major,
+                        "roleId" to application.roleId,
+                        "roleTitle" to application.roleTitle,
+                        "joinedAt" to FieldValue.serverTimestamp(),
+                    ),
+                    "memberIds" to FieldValue.arrayUnion(me.uid),
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                ),
+            )
+            tx.update(
+                appRef,
+                mapOf(
+                    "status" to ApplicationStatus.Accepted.key,
+                    "respondedAt" to FieldValue.serverTimestamp(),
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                ),
+            )
+        }.await()
+    }
+
+    suspend fun declineOffer(listingId: String, applicantId: String) {
+        ref(listingId, applicantId)
+            .update(
+                mapOf(
+                    "status" to ApplicationStatus.Declined.key,
+                    "respondedAt" to FieldValue.serverTimestamp(),
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                ),
+            )
+            .awaitWrite()
+    }
+
+    /** After a place reopens, earlier applicants confirm they're still interested (US15). */
+    suspend fun requestReconfirmation(listingId: String, applicantIds: Collection<String>) {
+        applicantIds.chunked(400).forEach { chunk ->
+            val batch = db.batch()
+            chunk.forEach { id ->
+                batch.update(
+                    ref(listingId, id),
+                    mapOf(
+                        "status" to ApplicationStatus.Reconfirm.key,
+                        "reviewed" to false,
+                        "reconfirmRequestedAt" to FieldValue.serverTimestamp(),
+                    ),
+                )
+            }
+            batch.commit().awaitWrite()
+        }
+    }
+
+    suspend fun confirmInterest(listingId: String, applicantId: String) {
+        ref(listingId, applicantId)
+            .update(
+                mapOf(
+                    "status" to ApplicationStatus.Submitted.key,
+                    "reviewed" to false,
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                ),
+            )
+            .awaitWrite()
     }
 
     companion object {

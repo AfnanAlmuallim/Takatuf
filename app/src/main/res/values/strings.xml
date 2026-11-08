@@ -4,6 +4,7 @@
 
     <!-- Navigation -->
     <string name="tab_discover">Discover</string>
+    <string name="tab_teams">Teams</string>
     <string name="tab_activity">Activity</string>
     <string name="tab_passport">Passport</string>
 
@@ -45,7 +46,6 @@
     <string name="action_post">Post</string>
     <string name="action_post_something">Post an opportunity</string>
     <string name="action_publish">Publish</string>
-    <string name="action_remove_from_shortlist">Remove from shortlist</string>
     <string name="action_remove_from_shortlist_named">Remove %1$s from shortlist</string>
     <string name="action_remove_named">Remove %1$s</string>
     <string name="action_remove_role">Remove role</string>
@@ -354,7 +354,6 @@
     <string name="applicants_filter_all">All %1$d</string>
     <string name="applicants_filter_new">New %1$d</string>
     <string name="applicants_filter_shortlisted">Shortlisted %1$d</string>
-    <string name="applicants_filter_withdrawn">Withdrawn %1$d</string>
     <string name="applicants_new">New</string>
     <string name="applicants_passport_hidden">Passport hidden</string>
     <string name="applicants_none_title">No applicants yet</string>
@@ -363,13 +362,11 @@
     <string name="applicants_filter_empty_body">Nobody matches this filter right now.</string>
     <string name="applicants_not_owner_title">Only the owner can review applicants</string>
     <string name="applicants_not_owner_body">Applications to a listing are visible to the student who posted it.</string>
-    <string name="applicant_role_hours">%1$s, %2$d h a week</string>
     <string name="applicant_title">Applicant</string>
     <string name="applicant_applied_for">Applied for</string>
     <string name="applicant_pitch">What they’d bring</string>
     <string name="applicant_withdrew">Withdrew %1$s</string>
     <string name="applied_when">Applied %1$s</string>
-    <string name="shortlist_note">Shortlisting keeps your picks together. It doesn’t add anyone to the team.</string>
 
     <!-- Passport -->
     <string name="passport_title">Skill Passport</string>
@@ -436,10 +433,6 @@
     <plurals name="role_you_cover">
         <item quantity="one">You have %1$d of %2$d skill this role asks for</item>
         <item quantity="other">You have %1$d of %2$d skills this role asks for</item>
-    </plurals>
-    <plurals name="applicant_covers">
-        <item quantity="one">Has %1$d of the %2$d skill this role asks for</item>
-        <item quantity="other">Has %1$d of the %2$d skills this role asks for</item>
     </plurals>
     <plurals name="editor_more_roles">
         <item quantity="one">%d more role</item>
@@ -517,8 +510,367 @@
         <item quantity="one">%d shortlisted</item>
         <item quantity="other">%d shortlisted</item>
     </plurals>
-    <plurals name="new_applicants_badge_a11y">
-        <item quantity="one">%d new applicant</item>
-        <item quantity="other">%d new applicants</item>
+    <!-- Sprint 2: teams, offers, workspace -->
+    <string name="error_team_full">This team filled up before you answered, so the offer can’t be accepted.</string>
+    <string name="error_offer_expired">This offer expired. Ask the lead to send a new one.</string>
+    <string name="error_offer_gone">This offer is no longer open.</string>
+    <string name="error_ai_unavailable">Role suggestions aren’t available right now. Add roles yourself and try again later.</string>
+    <string name="error_ai_limit">You’ve used today’s role suggestions. Try again tomorrow.</string>
+    <string name="you">You</string>
+    <string name="team_lead">Lead</string>
+    <string name="action_decline">Decline</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_dismiss">Dismiss</string>
+    <string name="action_remove">Remove</string>
+    <string name="action_stay">Stay</string>
+    <string name="action_view_listing">View listing</string>
+    <string name="eligible_any">Anyone</string>
+    <string name="eligible_undergraduate">Undergraduates</string>
+    <string name="eligible_graduate">Graduate students</string>
+    <string name="status_offer_sent">Offer sent</string>
+    <string name="status_offer_received">Offer received</string>
+    <string name="status_offer_expired">Offer expired</string>
+    <string name="status_reconfirm_owner">Asked to reconfirm</string>
+    <string name="status_reconfirm_applicant">Still interested?</string>
+    <string name="status_joined">Joined</string>
+    <string name="status_declined">Declined</string>
+    <string name="status_left">Left</string>
+    <string name="status_removed">Removed</string>
+    <string name="tag_offer">Offer to answer</string>
+    <string name="tag_reconfirm">Reconfirm</string>
+    <string name="offer_answer_today">Answer today</string>
+    <string name="offer_answer_by">Answer by %1$s</string>
+    <string name="closed_full_short">Team full</string>
+    <string name="closed_full_long">Every place on this team is filled. The lead may reopen one later.</string>
+    <string name="fit_strong">Strong fit</string>
+    <string name="fit_good">Good fit</string>
+    <string name="fit_partial">Partial fit</string>
+    <string name="fit_not_eligible">Not eligible</string>
+    <string name="fit_limited_info">Limited info</string>
+    <string name="fit_hours">%1$d of %2$d h a week</string>
+    <string name="fit_check_eligibility">Check eligibility</string>
+    <string name="fit_brings">Adds %1$s to the team</string>
+    <string name="fit_interests">Interested in %1$s</string>
+    <string name="fit_ineligible_body">Open to: %2$s. %1$s’s recorded year doesn’t match.</string>
+    <string name="fit_limited_body">%1$s’s passport is private or empty, so skills and experience count as average rather than low.</string>
+    <string name="action_suggest_team">Suggest a team</string>
+    <string name="applicants_filter_offered">Offered %1$d</string>
+    <string name="applicants_filter_joined">Joined %1$d</string>
+    <string name="applicants_filter_past">Past %1$d</string>
+    <string name="action_shortlisted">Shortlisted</string>
+    <string name="action_send_offer">Send offer</string>
+    <string name="action_renew_offer">Send a new offer</string>
+    <string name="action_cancel_offer">Cancel offer</string>
+    <string name="action_keep_offer">Keep offer</string>
+    <string name="offer_note">The applicant joins only if they accept before the offer runs out.</string>
+    <string name="offer_no_place">%1$s has no open place. Reopen one from the team workspace to send an offer.</string>
+    <string name="offer_waiting_owner">Waiting for %1$s to answer by %2$s.</string>
+    <string name="offer_expired_owner">%1$s didn’t answer by %2$s, so the offer expired.</string>
+    <string name="reconfirm_waiting_owner">Waiting for %1$s to confirm they’re still interested.</string>
+    <string name="cancel_offer_title">Cancel this offer?</string>
+    <string name="cancel_offer_body">%1$s won’t be able to accept it. They stay on your shortlist.</string>
+    <string name="applicant_joined">Joined the team %1$s</string>
+    <string name="applicant_declined">Declined your offer %1$s</string>
+    <string name="applicant_left">Left the team %1$s</string>
+    <string name="applicant_removed">Removed from the team</string>
+    <string name="offer_sheet_body">Nothing changes on your team until they accept. You can cancel the offer before then.</string>
+    <string name="offer_sheet_answer_within">Answer within</string>
+    <string name="offer_sheet_until">Open until the end of %1$s</string>
+    <string name="msg_offer_sent">Offer sent</string>
+    <string name="msg_offer_cancelled">Offer cancelled</string>
+    <string name="msg_offers_sent">Offers sent</string>
+    <string name="builder_title">Suggested teams</string>
+    <string name="builder_hero_count">%1$d of %2$d</string>
+    <plurals name="builder_hero_skills">
+        <item quantity="one">Covers %1$d of %2$d needed skill</item>
+        <item quantity="other">Covers %1$d of %2$d needed skills</item>
+    </plurals>
+    <string name="strategy_coverage">Widest skill coverage</string>
+    <string name="strategy_strongest">Strongest individuals</string>
+    <string name="strategy_alternative">Another mix</string>
+    <plurals name="option_skills">
+        <item quantity="one">%1$d of %2$d skill</item>
+        <item quantity="other">%1$d of %2$d skills</item>
+    </plurals>
+    <string name="option_fills_all">Fills every place</string>
+    <string name="option_only_here">Only one with %1$s</string>
+    <string name="builder_skills">Skills the roles need</string>
+    <string name="builder_skills_all">This team covers every skill the roles ask for.</string>
+    <string name="builder_skills_missing">Still missing: %1$s</string>
+    <string name="builder_skills_team">Your team already has: %1$s</string>
+    <string name="builder_people">People</string>
+    <string name="builder_keep_hint">Pin someone to keep them in every option.</string>
+    <string name="action_keep">Keep %1$s in every option</string>
+    <string name="action_unkeep">Stop keeping %1$s</string>
+    <string name="builder_gaps_title">Why this team isn’t complete</string>
+    <string name="builder_gaps_title_notes">Worth knowing</string>
+    <string name="gap_empty_role">No one suitable has applied for %1$s yet.</string>
+    <string name="gap_kept_unavailable">%1$s can’t be kept: they withdrew, declined or aren’t eligible.</string>
+    <string name="gap_kept_gone">Someone you pinned is no longer available.</string>
+    <string name="gap_kept_overbooked">%1$s can’t be kept: you pinned more people for %2$s than it has places.</string>
+    <string name="action_other_options">Show other options</string>
+    <string name="action_best_options">Back to best matches</string>
+    <string name="builder_offer_note">Nothing changes on your team until they accept.</string>
+    <string name="builder_all_offered">Everyone in this option already has an offer.</string>
+    <string name="builder_none_title">No team to suggest yet</string>
+    <string name="builder_none_body">There are no active applicants to combine yet. Suggestions appear once people apply.</string>
+    <string name="builder_none_full">Every place is filled. Reopen a place from the team workspace to recruit again.</string>
+    <string name="builder_none_roles">No one has applied for %1$s yet. Suggestions appear once people apply.</string>
+    <string name="action_back_to_applicants">Back to applicants</string>
+    <string name="msg_no_other_options">No other combinations right now</string>
+    <string name="action_accept_offer">Accept and join</string>
+    <string name="action_still_interested">Still interested</string>
+    <string name="offer_prompt">You’re offered the %1$s place.</string>
+    <string name="offer_detail_prompt">You’re offered the %1$s place</string>
+    <string name="reconfirm_prompt">The team reopened a place. Are you still interested?</string>
+    <string name="reconfirm_detail_prompt">The team reopened a place. Are you still interested in %1$s?</string>
+    <string name="decline_offer_title">Decline this offer?</string>
+    <string name="decline_offer_body">You won’t join %1$s. You can apply again later if it’s still recruiting.</string>
+    <string name="removed_from_team">The lead removed you from this team, so you can’t apply again.</string>
+    <string name="hero_on_team">You’re on this team.</string>
+    <string name="action_open_workspace">Open team workspace</string>
+    <string name="msg_joined_team">You joined %1$s</string>
+    <string name="msg_offer_declined">Offer declined</string>
+    <string name="msg_interest_confirmed">Thanks. The team can consider you again.</string>
+    <string name="teams_empty_title">No teams yet</string>
+    <string name="teams_empty_body">Teams you lead or join show up here, each with its own workspace.</string>
+    <string name="teams_joined">Teams you joined</string>
+    <string name="teams_leading">Teams you lead</string>
+    <string name="team_you_lead">You lead</string>
+    <string name="lead_handover_pending">Handover pending</string>
+    <string name="lead_request_prompt">%1$s asked you to lead %2$s. They’ll stay on as a member.</string>
+    <string name="action_become_lead">Become lead</string>
+    <string name="decline_lead_title">Decline leadership?</string>
+    <string name="decline_lead_body">%1$s stays lead and you stay a member.</string>
+    <string name="msg_lead_accepted">You now lead %1$s</string>
+    <string name="msg_lead_declined">Leadership request declined</string>
+    <string name="workspace_tab_plan">Plan</string>
+    <string name="workspace_tab_updates">Updates</string>
+    <string name="workspace_tab_people">People</string>
+    <string name="workspace_no_access_title">This workspace is for the team</string>
+    <string name="workspace_no_access_body">Only the lead and confirmed members can see it. Leaving or being removed ends access.</string>
+    <string name="workspace_nothing_due">No milestones outstanding</string>
+    <string name="workspace_next">Next: %1$s</string>
+    <string name="workspace_next_due">Next: %1$s, due %2$s</string>
+    <string name="action_post_update">Post update</string>
+    <string name="workspace_links">Links</string>
+    <string name="workspace_links_empty">Keep the team’s documents, repositories and designs in one place.</string>
+    <string name="workspace_updates">Updates</string>
+    <string name="workspace_updates_empty">Nothing shared yet. Post progress, blockers or decisions so everyone stays in step.</string>
+    <string name="link_meta">%1$s, added by %2$s</string>
+    <string name="action_remove_link">Remove %1$s</string>
+    <string name="action_delete_update">Delete update</string>
+    <string name="update_sheet_title">Post an update</string>
+    <string name="update_field_text">Update</string>
+    <string name="update_field_text_placeholder">What changed, what’s blocked, what’s next</string>
+    <string name="update_field_link">Link (optional)</string>
+    <string name="link_placeholder">https://</string>
+    <string name="link_dialog_title">Add a link</string>
+    <string name="link_field_label">Name</string>
+    <string name="link_field_label_placeholder">Design file</string>
+    <string name="link_field_url">Link</string>
+    <string name="msg_update_posted">Update posted</string>
+    <string name="msg_update_deleted">Update deleted</string>
+    <string name="msg_link_added">Link added</string>
+    <string name="msg_link_removed">Link removed</string>
+    <string name="action_add_milestone">Add milestone</string>
+    <string name="plan_empty_title">Plan the work</string>
+    <string name="plan_empty_body">Add milestones with a person responsible and a target date, so everyone can see what’s next.</string>
+    <string name="plan_filter_all">Everyone’s</string>
+    <string name="plan_filter_mine">Mine</string>
+    <plurals name="plan_progress">
+        <item quantity="one">%1$d of %2$d milestone done</item>
+        <item quantity="other">%1$d of %2$d milestones done</item>
+    </plurals>
+    <string name="plan_none_outstanding">Nothing outstanding. Add the next milestone when you’re ready.</string>
+    <string name="plan_none_mine">Nothing outstanding is assigned to you.</string>
+    <string name="action_mark_done">Mark %1$s done</string>
+    <string name="action_mark_not_done">Mark %1$s not done</string>
+    <string name="milestone_todo">To do</string>
+    <string name="milestone_doing">In progress</string>
+    <string name="milestone_done">Done</string>
+    <string name="milestone_due">Due %1$s</string>
+    <string name="milestone_overdue">Overdue since %1$s</string>
+    <string name="milestone_done_on">Done %1$s</string>
+    <string name="milestone_new_title">New milestone</string>
+    <string name="milestone_edit_title">Edit milestone</string>
+    <string name="milestone_field_title">What needs to happen</string>
+    <string name="milestone_field_title_placeholder">First working prototype</string>
+    <string name="milestone_field_assignee">Responsible</string>
+    <string name="milestone_field_due">Target date</string>
+    <string name="milestone_field_due_none">No date</string>
+    <string name="milestone_field_status">Status</string>
+    <string name="action_delete_milestone">Delete milestone</string>
+    <string name="milestone_delete_confirm">Delete this milestone for everyone?</string>
+    <string name="msg_milestone_added">Milestone added</string>
+    <string name="msg_milestone_saved">Milestone saved</string>
+    <string name="msg_milestone_done">Marked done</string>
+    <string name="msg_milestone_deleted">Milestone deleted</string>
+    <string name="person_you">%1$s (you)</string>
+    <string name="person_role_joined">%1$s, joined %2$s</string>
+    <string name="person_former_lead">Former lead</string>
+    <string name="lead_nominated">Asked to lead</string>
+    <string name="lead_request_here">%1$s asked you to take over as lead. They’ll stay on the team as a member.</string>
+    <string name="lead_handover_waiting">Waiting for %1$s to accept leadership. You stay lead until they do.</string>
+    <string name="action_take_back">Take back</string>
+    <string name="responsibility_add">Add a responsibility</string>
+    <string name="responsibility_none">No responsibility set yet</string>
+    <string name="responsibility_title_me">Your responsibility</string>
+    <string name="responsibility_title">%1$s’s responsibility</string>
+    <string name="responsibility_placeholder">Front end and user testing</string>
+    <string name="action_edit_responsibility">Edit %1$s’s responsibility</string>
+    <string name="action_manage_member">Manage %1$s</string>
+    <string name="action_make_lead">Make lead</string>
+    <string name="action_remove_from_team">Remove from team</string>
+    <string name="action_ask_to_lead">Ask to lead</string>
+    <string name="nominate_title">Ask %1$s to lead?</string>
+    <string name="nominate_body">You stay lead until %1$s accepts. After that you’ll be a member, and they’ll manage recruitment and the team.</string>
+    <string name="remove_member_title">Remove %1$s?</string>
+    <string name="remove_member_body">%1$s loses access to the workspace. Their milestones stay with the team.</string>
+    <string name="action_leave_team">Leave team</string>
+    <string name="leave_team_title">Leave %1$s?</string>
+    <string name="leave_team_body">You’ll lose access to the workspace. Your milestones and updates stay with the team.</string>
+    <string name="lead_leave_hint">To leave, hand leadership to a member first: open their menu and choose Make lead.</string>
+    <string name="workspace_recruiting">Recruiting</string>
+    <string name="workspace_team_full">Every place is filled</string>
+    <string name="action_reopen_place">Reopen a place</string>
+    <string name="reopen_hint">Reopening keeps the workspace, milestones and updates as they are.</string>
+    <string name="reopen_title">Reopen a place</string>
+    <string name="reopen_body">Recruit a replacement or an extra person. The workspace stays as it is.</string>
+    <string name="reopen_role">Role</string>
+    <string name="reopen_places">Places</string>
+    <string name="reopen_ask_earlier_hint">They’re considered again once they confirm.</string>
+    <string name="msg_place_reopened">Place reopened</string>
+    <string name="msg_lead_nominated">Asked %1$s to lead</string>
+    <string name="msg_nomination_cancelled">Request taken back</string>
+    <string name="msg_member_removed">%1$s removed from the team</string>
+    <string name="msg_responsibility_saved">Responsibility saved</string>
+    <string name="ai_roles_title">Suggest roles from your description</string>
+    <string name="ai_roles_body">Reads what you wrote and proposes roles and skills. Nothing is added until you choose it.</string>
+    <string name="ai_roles_need_more">Write a little more about the outcome first, then roles can be suggested from it.</string>
+    <string name="ai_roles_reading">Reading your description…</string>
+    <string name="ai_roles_nothing_new">No new roles beyond the ones you have.</string>
+    <string name="ai_roles_disclaimer">Suggested by AI. Check the skills before adding.</string>
+    <string name="action_suggest_roles">Suggest roles</string>
+    <string name="action_suggest_more_roles">Suggest more roles</string>
+    <string name="action_dismiss_role">Dismiss %1$s</string>
+    <string name="editor_eligible_level">Who can enter</string>
+    <string name="editor_eligible_level_hint">Used to flag applicants whose year doesn’t match. The text above stays the official rule.</string>
+    <plurals name="attention_badge_a11y">
+        <item quantity="one">%d item needs your attention</item>
+        <item quantity="other">%d items need your attention</item>
+    </plurals>
+    <plurals name="members_joined_count">
+        <item quantity="one">%d member joined</item>
+        <item quantity="other">%d members joined</item>
+    </plurals>
+    <plurals name="offers_out_count">
+        <item quantity="one">%d offer out</item>
+        <item quantity="other">%d offers out</item>
+    </plurals>
+    <plurals name="fit_skills">
+        <item quantity="one">%1$d of %2$d skill</item>
+        <item quantity="other">%1$d of %2$d skills</item>
+    </plurals>
+    <plurals name="fit_experience">
+        <item quantity="one">%d related experience</item>
+        <item quantity="other">%d related experiences</item>
+    </plurals>
+    <plurals name="offer_sheet_title">
+        <item quantity="one">Offer %d place</item>
+        <item quantity="other">Offer %d places</item>
+    </plurals>
+    <plurals name="offer_days">
+        <item quantity="one">%d day</item>
+        <item quantity="other">%d days</item>
+    </plurals>
+    <plurals name="action_send_offers">
+        <item quantity="one">Send %d offer</item>
+        <item quantity="other">Send %d offers</item>
+    </plurals>
+    <plurals name="builder_hero_body">
+        <item quantity="one">places filled, with %d suggested person</item>
+        <item quantity="other">places filled, with %d suggested people</item>
+    </plurals>
+    <plurals name="option_empty_places">
+        <item quantity="one">%d place left empty</item>
+        <item quantity="other">%d places left empty</item>
+    </plurals>
+    <plurals name="role_places">
+        <item quantity="one">%d place</item>
+        <item quantity="other">%d places</item>
+    </plurals>
+    <plurals name="builder_role_empty">
+        <item quantity="one">%d place left empty</item>
+        <item quantity="other">%d places left empty</item>
+    </plurals>
+    <plurals name="gap_short">
+        <item quantity="one">%1$s: %2$d place has no suitable applicant.</item>
+        <item quantity="other">%1$s: %2$d places have no suitable applicant.</item>
+    </plurals>
+    <plurals name="gap_ineligible">
+        <item quantity="one">%d applicant isn’t eligible for this event, so they’re left out.</item>
+        <item quantity="other">%d applicants aren’t eligible for this event, so they’re left out.</item>
+    </plurals>
+    <plurals name="builder_other_offers">
+        <item quantity="one">%d earlier offer is still open. Whoever accepts first takes the place.</item>
+        <item quantity="other">%d earlier offers are still open. Whoever accepts first takes the place.</item>
+    </plurals>
+    <plurals name="builder_none_ineligible">
+        <item quantity="one">The %d active applicant isn’t eligible for this event.</item>
+        <item quantity="other">None of the %d active applicants are eligible for this event.</item>
+    </plurals>
+    <plurals name="team_people">
+        <item quantity="one">%d person</item>
+        <item quantity="other">%d people</item>
+    </plurals>
+    <plurals name="workspace_people_open">
+        <item quantity="one">%1$d people, %2$d open place</item>
+        <item quantity="other">%1$d people, %2$d open places</item>
+    </plurals>
+    <plurals name="plan_outstanding">
+        <item quantity="one">%d to do</item>
+        <item quantity="other">%d to do</item>
+    </plurals>
+    <plurals name="plan_completed">
+        <item quantity="one">%d done</item>
+        <item quantity="other">%d done</item>
+    </plurals>
+    <plurals name="plan_overdue_count">
+        <item quantity="one">%d overdue</item>
+        <item quantity="other">%d overdue</item>
+    </plurals>
+    <plurals name="open_places_count">
+        <item quantity="one">%d open place</item>
+        <item quantity="other">%d open places</item>
+    </plurals>
+    <plurals name="reopen_places_now">
+        <item quantity="one">%d open now</item>
+        <item quantity="other">%d open now</item>
+    </plurals>
+    <plurals name="reopen_ask_earlier">
+        <item quantity="one">%d earlier applicant will be asked to confirm they’re still interested.</item>
+        <item quantity="other">%d earlier applicants will be asked to confirm they’re still interested.</item>
+    </plurals>
+    <plurals name="action_reopen_places">
+        <item quantity="one">Reopen %d place</item>
+        <item quantity="other">Reopen %d places</item>
+    </plurals>
+    <plurals name="action_add_all_roles">
+        <item quantity="one">Add %d role</item>
+        <item quantity="other">Add all %d</item>
+    </plurals>
+    <plurals name="editor_team_size_members">
+        <item quantity="one">%d member already joined, so the team can’t be smaller than that plus you.</item>
+        <item quantity="other">%d members already joined, so the team can’t be smaller than that plus you.</item>
+    </plurals>
+    <string name="workspace_next_overdue">Next: %1$s, overdue since %2$s</string>
+    <plurals name="people_off_app">
+        <item quantity="one">Includes %d teammate who isn’t on Takatuf</item>
+        <item quantity="other">Includes %d teammates who aren’t on Takatuf</item>
+    </plurals>
+    <plurals name="gap_other_mix">
+        <item quantity="one">%1$s: %2$d place is left empty in this mix. Another option fills it.</item>
+        <item quantity="other">%1$s: %2$d places are left empty in this mix. Another option fills them.</item>
     </plurals>
 </resources>

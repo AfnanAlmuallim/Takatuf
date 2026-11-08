@@ -23,6 +23,11 @@ enum class AppError(@param:StringRes val message: Int) {
     InvalidEmail(R.string.error_invalid_email),
     TooManyRequests(R.string.error_too_many_requests),
     UserDisabled(R.string.error_user_disabled),
+    TeamFull(R.string.error_team_full),
+    OfferExpired(R.string.error_offer_expired),
+    OfferGone(R.string.error_offer_gone),
+    AiUnavailable(R.string.error_ai_unavailable),
+    AiLimit(R.string.error_ai_limit),
     Unknown(R.string.error_unknown),
 }
 

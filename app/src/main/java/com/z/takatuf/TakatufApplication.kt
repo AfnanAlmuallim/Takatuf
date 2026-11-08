@@ -17,6 +17,6 @@ class TakatufApplication : Application() {
             FirebaseAuth.getInstance().useEmulator(emulatorHost, 9099)
             FirebaseFirestore.getInstance().useEmulator(emulatorHost, 8080)
         }
-        container = AppContainer()
+        container = AppContainer(this)
     }
 }
